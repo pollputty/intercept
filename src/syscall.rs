@@ -1,19 +1,8 @@
-use nix::errno::Errno;
-
-pub enum Operation {
-    Open { path: String },
-    Exit,
-}
-
-pub enum OperationResult {
-    FileDescriptor(i32),
-    Error(Errno),
-}
-
 pub enum SysNum {
     Close,
     Creat,
     ExitGroup,
+    GetPid,
     Open,
     OpenAt,
     Mmap,
@@ -24,6 +13,8 @@ pub enum SysNum {
     Other(u64),
 }
 
+pub type SyscallResult = Result<u64, nix::errno::Errno>;
+
 impl From<u64> for SysNum {
     fn from(num: u64) -> Self {
         match num {
@@ -33,10 +24,29 @@ impl From<u64> for SysNum {
             3 => SysNum::Close,
             9 => SysNum::Mmap,
             11 => SysNum::Munmap,
+            39 => SysNum::GetPid,
             85 => SysNum::Creat,
             231 => SysNum::ExitGroup,
             257 => SysNum::OpenAt,
             _ => Self::Other(num),
+        }
+    }
+}
+
+impl From<SysNum> for u64 {
+    fn from(num: SysNum) -> u64 {
+        match num {
+            SysNum::Read => 0,
+            SysNum::Write => 1,
+            SysNum::Open => 2,
+            SysNum::Close => 3,
+            SysNum::Mmap => 9,
+            SysNum::Munmap => 11,
+            SysNum::GetPid => 39,
+            SysNum::Creat => 85,
+            SysNum::ExitGroup => 231,
+            SysNum::OpenAt => 257,
+            SysNum::Other(num) => num,
         }
     }
 }
