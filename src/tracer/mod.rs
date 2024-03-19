@@ -1,8 +1,9 @@
 mod operation;
 mod tracee;
 
+use crate::config::Config;
 use operation::{Operation, OperationResult};
-use std::io::Result;
+use std::{collections::HashMap, io::Result};
 use tracee::Tracee;
 use tracing::{debug, info};
 
@@ -14,11 +15,15 @@ where
     Tracee::spawn(cmd, args)
 }
 
-pub fn run() -> Result<()> {
+pub fn run(cfg: &Config) -> Result<()> {
     debug!("command spawned");
 
-    let src_path = "/home/paul/test.txt";
-    let dst_path = "/home/paul/evil.txt";
+    let files_redirect: HashMap<String, String> = cfg
+        .redirect
+        .files
+        .iter()
+        .map(|redirect| (redirect.from.clone(), redirect.to.clone()))
+        .collect();
 
     loop {
         match Tracee::wait() {
@@ -38,13 +43,13 @@ pub fn run() -> Result<()> {
                         }
                     };
 
-                    let absolute = absolute.to_string_lossy();
-                    if absolute == src_path {
-                        info!("redirecting open() from {} to {}", absolute, dst_path);
+                    let absolute = absolute.to_string_lossy().to_string();
+                    if let Some(dest) = files_redirect.get(&absolute) {
+                        info!("redirecting open() from {} to {}", absolute, dest);
 
                         // Inject the new path into the tracee's memory.
                         // TODO: free the memory
-                        let mem = tracee.write_string(dst_path)?;
+                        let mem = tracee.write_string(dest)?;
                         operation.intercept(tracee, mem)?;
                     }
 
