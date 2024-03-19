@@ -7,6 +7,7 @@ pub enum SysNum {
     OpenAt,
     Mmap,
     Munmap,
+    NewFstatAt,
     Read,
     Write,
 
@@ -28,6 +29,7 @@ impl From<u64> for SysNum {
             85 => SysNum::Creat,
             231 => SysNum::ExitGroup,
             257 => SysNum::OpenAt,
+            262 => SysNum::NewFstatAt,
             _ => Self::Other(num),
         }
     }
@@ -46,6 +48,7 @@ impl From<SysNum> for u64 {
             SysNum::Creat => 85,
             SysNum::ExitGroup => 231,
             SysNum::OpenAt => 257,
+            SysNum::NewFstatAt => 262,
             SysNum::Other(num) => num,
         }
     }

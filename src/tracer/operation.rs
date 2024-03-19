@@ -4,10 +4,10 @@ use std::{
 };
 
 use nix::errno::Errno;
-use tracing::debug;
+use tracing::info;
 
-use crate::syscall::SysNum;
 use super::tracee::{State, Tracee};
+use crate::syscall::SysNum;
 
 pub enum Operation {
     Open { num: SysNum, path: PathBuf },
@@ -20,7 +20,6 @@ pub enum OperationResult {
 }
 
 impl Operation {
-
     pub fn parse(tracee: &mut Tracee) -> Result<Option<Operation>> {
         // Make sure we are in the proper state.
         match tracee.state() {
@@ -51,7 +50,7 @@ impl Operation {
             }
             // TODO: handle more syscalls
             SysNum::Other(num) => {
-                debug!(syscall = num, "received an unsupported syscall");
+                info!(syscall = num, "received an unsupported syscall");
                 Ok(None)
             }
             // The process will exit
@@ -61,11 +60,7 @@ impl Operation {
         }
     }
 
-    pub fn intercept(
-        &self,
-        tracee: &mut crate::tracer::tracee::Tracee,
-        address: u64,
-    ) -> Result<()> {
+    pub fn intercept(&self, tracee: &mut Tracee, address: u64) -> Result<()> {
         match self {
             Operation::Open { num, .. } => {
                 let arg = match num {

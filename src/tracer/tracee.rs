@@ -25,6 +25,13 @@ pub struct Tracee {
     pid: Pid,
     state: State,
     registers: user_regs_struct,
+    allocations: Option<Vec<Memory>>,
+}
+
+#[derive(Debug)]
+struct Memory {
+    addr: u64,
+    len: usize,
 }
 
 impl Tracee {
@@ -57,6 +64,7 @@ impl Tracee {
             pid,
             registers,
             state: State::BeforeSyscall,
+            allocations: None,
         }
     }
 
@@ -79,7 +87,7 @@ impl Tracee {
         Ok(())
     }
 
-    pub fn set_arg(&mut self, index: u8, value: u64) -> std::io::Result<()> {
+    pub fn set_arg(&mut self, index: u8, value: u64) -> Result<()> {
         debug!(index, value, "overwriting syscall argument");
         let mut registers = self.registers();
         match index {
@@ -164,7 +172,9 @@ impl Tracee {
         match self.state {
             State::BeforeSyscall => {
                 // Step over the syscall instruction.
-                self.step_syscall_and_wait()
+                self.step_syscall_and_wait()?;
+                assert!(matches!(self.state, State::AfterSyscall | State::Exited));
+                Ok(())
             }
             State::AfterSyscall | State::Exited => {
                 Err(Error::new(ErrorKind::Other, "invalid state"))
@@ -177,7 +187,9 @@ impl Tracee {
         match self.state {
             State::AfterSyscall => {
                 // Step over the syscall instruction.
-                self.step_syscall_and_wait()
+                self.step_syscall_and_wait()?;
+                assert!(matches!(self.state, State::BeforeSyscall));
+                Ok(())
             }
             State::BeforeSyscall | State::Exited => {
                 Err(Error::new(ErrorKind::Other, "invalid state"))
@@ -197,57 +209,85 @@ impl Tracee {
         arg6: u64,
     ) -> Result<u64> {
         debug!("sending syscall");
-        if let State::BeforeSyscall = self.state {
-        } else {
-            return Err(Error::new(ErrorKind::Other, "invalid state"));
-        }
 
-        // Update registers.
+        // Copy old values.
         let old_registers = self.registers();
+        let rip = old_registers.rip as *mut c_void;
+        let old_opcodes = ptrace::read(self.pid, rip)? as *mut c_void;
+
+        // Prepare new values for syscall
         let mut new_registers = old_registers;
-        new_registers.orig_rax = syscall.into();
+        let sysno: u64 = syscall.into();
+        new_registers.rax = sysno;
+        new_registers.orig_rax = sysno;
         new_registers.rdi = arg1;
         new_registers.rsi = arg2;
         new_registers.rdx = arg3;
         new_registers.r10 = arg4;
         new_registers.r8 = arg5;
         new_registers.r9 = arg6;
-        self.set_registers(new_registers)?;
-
-        // Do the syscall.
-        self.step_over_syscall()?;
-        let result = self.registers().rax as i64;
-
-        // Restore registers and force a new syscall so that we end up in the same state as before.
-        self.set_registers(old_registers)?;
-        let rip = old_registers.rip as *mut c_void;
-        let old_opcodes = ptrace::read(self.pid, rip)? as *mut c_void;
         let syscall_opcodes =
             u64::from_le_bytes([0x0F, 0x05, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90]) as *mut c_void;
-        unsafe {
-            ptrace::write(self.pid, rip, syscall_opcodes)?;
-        }
 
-        // Return in syscall-enter.
-        self.step_to_syscall()?;
+        let result = match self.state {
+            State::BeforeSyscall => {
+                // Setup syscall
+                self.set_registers(new_registers)?;
 
-        // Restore previous opcodes and registers (mostly for rip).
-        unsafe {
-            ptrace::write(self.pid, rip, old_opcodes)?;
-        }
-        self.set_registers(old_registers)?;
+                // Do the syscall.
+                self.step_over_syscall()?;
+                let result = self.registers().rax as i64;
+
+                // Restore registers and force a new syscall so that we end up in the same state as before.
+                self.set_registers(old_registers)?;
+                unsafe {
+                    ptrace::write(self.pid, rip, syscall_opcodes)?;
+                }
+
+                // Return in syscall-enter.
+                self.step_to_syscall()?;
+
+                // Restore previous opcodes and registers (mostly for rip).
+                unsafe {
+                    ptrace::write(self.pid, rip, old_opcodes)?;
+                }
+                self.set_registers(old_registers)?;
+
+                result
+            }
+            State::AfterSyscall => {
+                // Setup syscall
+                self.set_registers(new_registers)?;
+                unsafe {
+                    ptrace::write(self.pid, rip, syscall_opcodes)?;
+                }
+
+                // Do the syscall.
+                self.step_to_syscall()?;
+                self.step_over_syscall()?;
+                let result = self.registers().rax as i64;
+
+                // Restore registers and opcodes.
+                self.set_registers(old_registers)?;
+                unsafe {
+                    ptrace::write(self.pid, rip, old_opcodes)?;
+                }
+
+                result
+            }
+            State::Exited => return Err(Error::new(ErrorKind::Other, "invalid state")),
+        };
 
         if result < 0 {
             let err = Errno::from_raw(-result as i32);
             warn!(?err, "syscall error");
             return Err(Error::new(ErrorKind::Other, err));
         }
-
         Ok(result as u64)
     }
 
     fn reserve_memory(&mut self, len: usize) -> Result<u64> {
-        self.send_syscall(
+        let addr = self.send_syscall(
             SysNum::Mmap,
             0,
             len as u64,
@@ -255,7 +295,18 @@ impl Tracee {
             (MAP_ANONYMOUS | MAP_PRIVATE) as u64,
             0,
             0,
-        )
+        )?;
+        let mem = Memory { addr, len };
+        match self.allocations {
+            Some(ref mut vec) => vec.push(mem),
+            None => self.allocations = Some(vec![mem]),
+        }
+        Ok(addr)
+    }
+
+    fn free_memory(&mut self, mem: &Memory) -> Result<()> {
+        self.send_syscall(SysNum::Munmap, mem.addr, mem.len as u64, 0, 0, 0, 0)?;
+        Ok(())
     }
 
     fn write_memory(&self, addr: u64, data: &[u8]) -> Result<()> {
@@ -271,7 +322,7 @@ impl Tracee {
     pub fn write_string(&mut self, string: &str) -> Result<u64> {
         let addr = self.reserve_memory(string.len() + 1)?;
         let mut data = Vec::from(string.as_bytes());
-        data.push(0);
+        data.push(0); // TODO: not necessary because memory is 0-initialized
         self.write_memory(addr, &data)?;
         debug!(addr, "wrote string in tracee");
         Ok(addr)
@@ -346,6 +397,11 @@ impl Drop for Tracee {
             self.step_over_syscall().unwrap();
         }
         if let State::AfterSyscall = self.state {
+            if let Some(allocations) = self.allocations.take() {
+                for mem in allocations {
+                    self.free_memory(&mem).unwrap();
+                }
+            }
             ptrace::syscall(self.pid, None).unwrap();
         }
     }
