@@ -4,8 +4,10 @@ use std::{
 };
 
 use nix::errno::Errno;
+use tracing::debug;
 
 use crate::syscall::SysNum;
+use super::tracee::{State, Tracee};
 
 pub enum Operation {
     Open { num: SysNum, path: PathBuf },
@@ -18,6 +20,47 @@ pub enum OperationResult {
 }
 
 impl Operation {
+
+    pub fn parse(tracee: &mut Tracee) -> Result<Option<Operation>> {
+        // Make sure we are in the proper state.
+        match tracee.state() {
+            State::BeforeSyscall => {}
+            _ => return Err(Error::new(ErrorKind::Other, "invalid state")),
+        }
+
+        // Parse the syscall.
+        let registers = tracee.registers();
+        match registers.orig_rax.into() {
+            SysNum::Open => {
+                let path = tracee.read_string(registers.rdi)?;
+                let path = PathBuf::from(path);
+                Ok(Some(Operation::Open {
+                    path,
+                    num: SysNum::Open,
+                }))
+            }
+            SysNum::OpenAt => {
+                // For now we only handle the case where the first argument is AT_FDCWD.
+                assert_eq!(registers.rdi as i32, -100);
+                let path = tracee.read_string(registers.rsi)?;
+                let path = PathBuf::from(path);
+                Ok(Some(Operation::Open {
+                    path,
+                    num: SysNum::OpenAt,
+                }))
+            }
+            // TODO: handle more syscalls
+            SysNum::Other(num) => {
+                debug!(syscall = num, "received an unsupported syscall");
+                Ok(None)
+            }
+            // The process will exit
+            SysNum::ExitGroup => Ok(Some(Operation::Exit)),
+            // The rest is identified, and there is nothing to do
+            _ => Ok(None),
+        }
+    }
+
     pub fn intercept(
         &self,
         tracee: &mut crate::tracer::tracee::Tracee,

@@ -5,69 +5,83 @@ use nix::{
     libc::{c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE},
     sys::{
         ptrace,
-        signal::Signal,
-        wait::{waitpid, WaitStatus},
+        wait::{wait as syswait, waitpid, WaitStatus},
     },
     unistd::Pid,
 };
-use std::{
-    io::{Error, ErrorKind, Result},
-    path::PathBuf,
-};
+use std::io::{Error, ErrorKind, Result};
+use std::os::unix::process::CommandExt;
 use tracing::{debug, warn};
 
-enum State {
+#[derive(Copy, Clone, Debug)]
+pub enum State {
     BeforeSyscall,
     AfterSyscall,
     Exited,
 }
 
+#[derive(Debug)]
 pub struct Tracee {
     pid: Pid,
     state: State,
-    registers: Option<user_regs_struct>,
+    registers: user_regs_struct,
 }
 
 impl Tracee {
-    pub fn new(pid: Pid) -> Self {
-        Self {
-            pid,
-            state: State::BeforeSyscall,
-            registers: None,
+    pub fn spawn<I, S>(cmd: &str, args: I) -> Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        // Parse the command line and spawn the child process in a stopped state.
+        let mut cmd = std::process::Command::new(cmd);
+        cmd.args(args);
+        unsafe {
+            cmd.pre_exec(|| {
+                ptrace::traceme()?;
+                Ok(())
+            });
         }
-    }
+        let child = cmd.spawn()?;
 
-    fn resume(&mut self) -> std::io::Result<()> {
-        if let State::BeforeSyscall = self.state {
-            // Step over the syscall instruction.
-            self.step_over_syscall()?;
-        }
-        if let State::AfterSyscall = self.state {
-            ptrace::syscall(self.pid, None)?;
-            self.registers.take();
-        }
+        // Configure the child process to stop on system calls and resume it.
+        let pid = Pid::from_raw(child.id() as i32);
+        let opts = ptrace::Options::PTRACE_O_TRACESYSGOOD | ptrace::Options::PTRACE_O_EXITKILL;
+        ptrace::setoptions(pid, opts)?;
+        ptrace::syscall(pid, None)?;
         Ok(())
     }
 
-    pub fn get_registers(&mut self) -> std::io::Result<user_regs_struct> {
-        if let Some(registers) = self.registers {
-            Ok(registers)
-        } else {
-            let registers = ptrace::getregs(self.pid)?;
-            self.registers = Some(registers);
-            Ok(registers)
+    fn new(pid: Pid, registers: user_regs_struct) -> Self {
+        Self {
+            pid,
+            registers,
+            state: State::BeforeSyscall,
         }
+    }
+
+    pub fn state(&self) -> State {
+        self.state
+    }
+
+    pub fn registers(&self) -> user_regs_struct {
+        self.registers
+    }
+
+    fn update_registers(&mut self) -> Result<()> {
+        self.registers = ptrace::getregs(self.pid)?;
+        Ok(())
     }
 
     fn set_registers(&mut self, registers: user_regs_struct) -> std::io::Result<()> {
         ptrace::setregs(self.pid, registers)?;
-        self.registers = Some(registers);
+        self.registers = registers;
         Ok(())
     }
 
     pub fn set_arg(&mut self, index: u8, value: u64) -> std::io::Result<()> {
         debug!(index, value, "overwriting syscall argument");
-        let mut registers = self.get_registers()?;
+        let mut registers = self.registers();
         match index {
             1 => registers.rdi = value,
             2 => registers.rsi = value,
@@ -87,46 +101,6 @@ impl Tracee {
         Ok(())
     }
 
-    pub fn parse_syscall(&mut self) -> Result<Option<Operation>> {
-        // Make sure we are in the proper state.
-        match self.state {
-            State::BeforeSyscall => {}
-            _ => return Ok(None),
-        }
-
-        // Parse the syscall.
-        let registers = self.get_registers()?;
-        match registers.orig_rax.into() {
-            SysNum::Open => {
-                let path = self.read_string(registers.rdi as u64)?;
-                let path = PathBuf::from(path);
-                Ok(Some(Operation::Open {
-                    path,
-                    num: SysNum::Open,
-                }))
-            }
-            SysNum::OpenAt => {
-                // For now we only handle the case where the first argument is AT_FDCWD.
-                assert_eq!(registers.rdi as i32, -100);
-                let path = self.read_string(registers.rsi as u64)?;
-                let path = PathBuf::from(path);
-                Ok(Some(Operation::Open {
-                    path,
-                    num: SysNum::OpenAt,
-                }))
-            }
-            // TODO: handle more syscalls
-            SysNum::Other(num) => {
-                debug!(syscall = num, "received an unsupported syscall");
-                Ok(None)
-            }
-            // The process will exit
-            SysNum::ExitGroup => Ok(Some(Operation::Exit)),
-            // The rest is identified, and there is nothing to do
-            _ => Ok(None),
-        }
-    }
-
     pub fn get_result(&mut self, syscall: &Operation) -> Result<OperationResult> {
         // Make sure we are in the proper state.
         match self.state {
@@ -144,7 +118,7 @@ impl Tracee {
         }
 
         // Read the syscall result.
-        let retval = self.get_registers()?.rax as i64;
+        let retval = self.registers().rax as i64;
         match syscall {
             Operation::Open { .. } => {
                 if retval < 0 {
@@ -160,33 +134,37 @@ impl Tracee {
         }
     }
 
+    // Helper methods to step the tracee to syscal-{enter,exit}-stop.
+    fn step_syscall_and_wait(&mut self) -> Result<()> {
+        ptrace::syscall(self.pid, None)?;
+        match waitpid(self.pid, None)? {
+            WaitStatus::PtraceSyscall(_) => {
+                self.update_registers()?;
+                if Errno::from_raw(-(self.registers().rax as i32)) == Errno::ENOSYS {
+                    self.state = State::BeforeSyscall;
+                } else {
+                    self.state = State::AfterSyscall;
+                }
+            }
+            WaitStatus::Exited(_, _) => {
+                self.state = State::Exited;
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "expected to be at syscall-stop",
+                ))
+            }
+        }
+        Ok(())
+    }
+
     fn step_over_syscall(&mut self) -> Result<()> {
         // Make sure we are in the proper state.
         match self.state {
             State::BeforeSyscall => {
                 // Step over the syscall instruction.
-                ptrace::syscall(self.pid, None)?;
-                self.registers.take();
-                match waitpid(self.pid, None)? {
-                    WaitStatus::PtraceSyscall(_) => {
-                        assert_ne!(
-                            Errno::ENOSYS,
-                            Errno::from_raw(-(self.get_registers()?.rax as i32))
-                        );
-                        self.state = State::AfterSyscall;
-                    }
-                    WaitStatus::Exited(_, _) => {
-                        self.state = State::Exited;
-                    }
-                    _ => {
-                        return Err(Error::new(
-                            ErrorKind::Other,
-                            "expected to be at syscall-exit-stop",
-                        ))
-                    }
-                }
-
-                Ok(())
+                self.step_syscall_and_wait()
             }
             State::AfterSyscall | State::Exited => {
                 Err(Error::new(ErrorKind::Other, "invalid state"))
@@ -196,44 +174,18 @@ impl Tracee {
 
     fn step_to_syscall(&mut self) -> Result<()> {
         // Make sure we are in the proper state.
-        self.resume()?;
-        match waitpid(self.pid, None)? {
-            WaitStatus::PtraceSyscall(_) => {
-                // Sanity check that we are at the syscall-enter-stop.
-                assert_eq!(
-                    Errno::ENOSYS,
-                    Errno::from_raw(-(self.get_registers()?.rax as i32))
-                );
-                self.state = State::BeforeSyscall;
+        match self.state {
+            State::AfterSyscall => {
+                // Step over the syscall instruction.
+                self.step_syscall_and_wait()
             }
-            WaitStatus::Exited(_, _) => {
-                self.state = State::Exited;
+            State::BeforeSyscall | State::Exited => {
+                Err(Error::new(ErrorKind::Other, "invalid state"))
             }
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "expected to be at syscall-enter-stop",
-                ))
-            }
-        }
-
-        Ok(())
-    }
-
-    fn _step(&mut self) -> Result<()> {
-        ptrace::step(self.pid, None)?;
-        self.registers.take();
-
-        match waitpid(self.pid, None)? {
-            WaitStatus::Stopped(_, Signal::SIGTRAP) => Ok(()),
-            WaitStatus::Exited(_, _) => {
-                self.state = State::Exited;
-                Ok(())
-            }
-            _ => Err(Error::new(ErrorKind::Other, "expected sigtrap")),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_syscall(
         &mut self,
         syscall: SysNum,
@@ -250,15 +202,8 @@ impl Tracee {
             return Err(Error::new(ErrorKind::Other, "invalid state"));
         }
 
-        let old_registers = self.get_registers()?;
-        // info!(old_opcodes = ?old_opcodes, "old opcodes");
-
-        // // Write the syscall instruction
-        // unsafe {
-        //     ptrace::write(self.pid, rip, syscall_opcodes)?;
-        // }
-
-        // Update registers
+        // Update registers.
+        let old_registers = self.registers();
         let mut new_registers = old_registers;
         new_registers.orig_rax = syscall.into();
         new_registers.rdi = arg1;
@@ -269,12 +214,11 @@ impl Tracee {
         new_registers.r9 = arg6;
         self.set_registers(new_registers)?;
 
-        // Do the syscall
+        // Do the syscall.
         self.step_over_syscall()?;
+        let result = self.registers().rax as i64;
 
-        let result = self.get_registers()?.rax as i64;
-
-        // Restore registers and force a new syscall to be in the same state as before
+        // Restore registers and force a new syscall so that we end up in the same state as before.
         self.set_registers(old_registers)?;
         let rip = old_registers.rip as *mut c_void;
         let old_opcodes = ptrace::read(self.pid, rip)? as *mut c_void;
@@ -284,10 +228,10 @@ impl Tracee {
             ptrace::write(self.pid, rip, syscall_opcodes)?;
         }
 
-        // Return in syscall-enter
+        // Return in syscall-enter.
         self.step_to_syscall()?;
 
-        // Restore previous opcodes and registers (mostly for rip)
+        // Restore previous opcodes and registers (mostly for rip).
         unsafe {
             ptrace::write(self.pid, rip, old_opcodes)?;
         }
@@ -333,19 +277,6 @@ impl Tracee {
         Ok(addr)
     }
 
-    pub fn _read_memory(&self, addr: u64, len: usize) -> std::io::Result<Vec<u8>> {
-        use std::os::unix::fs::FileExt;
-
-        let path = format!("/proc/{}/mem", self.pid.as_raw() as u32);
-
-        let mut data = vec![0u8; len];
-        let mem = std::fs::File::open(path)?;
-        let len_read = mem.read_at(&mut data, addr)?;
-
-        data.truncate(len_read);
-        Ok(data)
-    }
-
     // TODO: what if not UTF-8?
     pub fn read_string(&self, addr: u64) -> std::io::Result<String> {
         debug!(addr, "reading string from tracee's memory");
@@ -377,10 +308,45 @@ impl Tracee {
         }
         Ok(result)
     }
+
+    pub fn wait() -> Result<Option<(Tracee, Operation)>> {
+        loop {
+            match syswait() {
+                Ok(WaitStatus::Exited(_, code)) => {
+                    // TODO: remove this assertion
+                    assert_eq!(code, 0);
+                    return Ok(None);
+                }
+                Ok(WaitStatus::PtraceSyscall(pid)) => {
+                    // A tracee is ready.
+                    let registers = ptrace::getregs(pid)?;
+                    let mut tracee = Tracee::new(pid, registers);
+                    // TODO: remove this assertion
+                    assert_eq!(Errno::ENOSYS, Errno::from_raw(-(registers.rax as i32)));
+                    let operation = Operation::parse(&mut tracee)?;
+                    if let Some(syscall) = operation {
+                        return Ok(Some((tracee, syscall)));
+                    } else {
+                        // Syscall not supported, keep going.
+                        continue;
+                    }
+                }
+                // TODO: support forking, etc...
+                Ok(s) => panic!("unexpected stop reason: {:?}", s),
+                Err(e) => panic!("unexpected waitpid error: {:?}", e),
+            }
+        }
+    }
 }
 
 impl Drop for Tracee {
     fn drop(&mut self) {
-        self.resume().unwrap()
+        // resume the tracee
+        if let State::BeforeSyscall = self.state {
+            self.step_over_syscall().unwrap();
+        }
+        if let State::AfterSyscall = self.state {
+            ptrace::syscall(self.pid, None).unwrap();
+        }
     }
 }
