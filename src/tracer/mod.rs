@@ -5,7 +5,7 @@ use crate::config::Config;
 use operation::{Operation, OperationResult};
 use std::{collections::HashMap, io::Result};
 use tracee::Tracee;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub fn spawn<I, S>(cmd: &str, args: I) -> Result<()>
 where
@@ -58,12 +58,31 @@ pub fn run(cfg: &Config) -> Result<()> {
                     // Let the syscall run.
                     match result {
                         OperationResult::FileDescriptor(fd) => {
-                            info!("opened {} (fd {})", path.to_string_lossy(), fd);
+                            info!("open({}) = {}", path.to_string_lossy(), fd);
                         }
                         OperationResult::Error(errno) => {
-                            info!("opened {} ({})", path.to_string_lossy(), errno);
+                            info!("open({}) = {}", path.to_string_lossy(), errno);
                         }
+                        e => error!(result = ?e, "unexpected result for open operation"),
                     }
+                }
+                Operation::Rand { len, .. } => {
+                    if cfg.redirect.random {
+                        info!("redirecting getrandom({})", len);
+                        operation.intercept(tracee, 0)?;
+                    }
+                    
+                    let result = tracee.get_result(&operation)?;
+                    match result {
+                        OperationResult::NumBytes(num_bytes) => {
+                            info!("getrandom({})", num_bytes);
+                        }
+                        OperationResult::Error(errno) => {
+                            info!("getrandom({})", errno);
+                        }
+                        e => error!(result = ?e, "unexpected result for rand operation"),
+                    }
+                
                 }
                 Operation::Exit => {
                     return Ok(());

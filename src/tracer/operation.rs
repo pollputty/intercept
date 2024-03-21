@@ -11,11 +11,14 @@ use crate::syscall::SysNum;
 
 pub enum Operation {
     Open { num: SysNum, path: PathBuf },
+    Rand { len: usize, addr: u64 },
     Exit,
 }
 
+#[derive(Debug)]
 pub enum OperationResult {
     FileDescriptor(i32),
+    NumBytes(usize),
     Error(Errno),
 }
 
@@ -48,6 +51,11 @@ impl Operation {
                     num: SysNum::OpenAt,
                 }))
             }
+            SysNum::GetRandom => {
+                let len = registers.rsi as usize;
+                let addr = registers.rdi;
+                Ok(Some(Operation::Rand { len, addr }))
+            }
             // TODO: handle more syscalls
             SysNum::Other(num) => {
                 info!(syscall = num, "received an unsupported syscall");
@@ -75,6 +83,15 @@ impl Operation {
                 };
 
                 tracee.set_arg(arg, address)?;
+                Ok(())
+            }
+            Operation::Rand { len, addr } => {
+                // TODO: skip the syscall instead
+                tracee.get_result(self)?;
+                // Overwrite result with 0s.
+                let data = vec![0u8; *len];
+                tracee.write_bytes(*addr, &data)?;
+                tracee.set_result(*len as u64)?;
                 Ok(())
             }
             Operation::Exit => Err(Error::new(

@@ -26,6 +26,7 @@ pub enum LogLevel {
 #[derive(Debug, Deserialize)]
 pub struct RedirectConfig {
     pub files: Vec<Redirect>,
+    pub random: bool,
 }
 
 #[derive(Debug, Deserialize)]

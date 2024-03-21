@@ -109,6 +109,15 @@ impl Tracee {
         Ok(())
     }
 
+    pub fn set_result(&mut self, result: u64) -> Result<()> {
+        debug!(result, "overwriting syscall result");
+        let mut registers = self.registers();
+        registers.rax = result;
+        self.set_registers(registers)?;
+
+        Ok(())
+    }
+
     pub fn get_result(&mut self, syscall: &Operation) -> Result<OperationResult> {
         // Make sure we are in the proper state.
         match self.state {
@@ -133,6 +142,13 @@ impl Tracee {
                     Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
                 } else {
                     Ok(OperationResult::FileDescriptor(retval as i32))
+                }
+            }
+            Operation::Rand { .. } => {
+                if retval < 0 {
+                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
+                } else {
+                    Ok(OperationResult::NumBytes(retval as usize))
                 }
             }
             Operation::Exit => Err(Error::new(
@@ -309,7 +325,7 @@ impl Tracee {
         Ok(())
     }
 
-    fn write_memory(&self, addr: u64, data: &[u8]) -> Result<()> {
+    pub fn write_bytes(&self, addr: u64, data: &[u8]) -> Result<()> {
         use std::os::unix::fs::FileExt;
         let path = format!("/proc/{}/mem", self.pid.as_raw() as u32);
         let mem = std::fs::OpenOptions::new()
@@ -323,7 +339,7 @@ impl Tracee {
         let addr = self.reserve_memory(string.len() + 1)?;
         let mut data = Vec::from(string.as_bytes());
         data.push(0); // TODO: not necessary because memory is 0-initialized
-        self.write_memory(addr, &data)?;
+        self.write_bytes(addr, &data)?;
         debug!(addr, "wrote string in tracee");
         Ok(addr)
     }

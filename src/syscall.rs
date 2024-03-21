@@ -3,6 +3,7 @@ pub enum SysNum {
     Creat,
     ExitGroup,
     GetPid,
+    GetRandom,
     Open,
     OpenAt,
     Mmap,
@@ -30,6 +31,7 @@ impl From<u64> for SysNum {
             231 => SysNum::ExitGroup,
             257 => SysNum::OpenAt,
             262 => SysNum::NewFstatAt,
+            318 => SysNum::GetRandom,
             _ => Self::Other(num),
         }
     }
@@ -49,6 +51,7 @@ impl From<SysNum> for u64 {
             SysNum::ExitGroup => 231,
             SysNum::OpenAt => 257,
             SysNum::NewFstatAt => 262,
+            SysNum::GetRandom => 318,
             SysNum::Other(num) => num,
         }
     }
