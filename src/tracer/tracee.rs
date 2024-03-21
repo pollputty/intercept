@@ -118,7 +118,7 @@ impl Tracee {
         Ok(())
     }
 
-    pub fn get_result(&mut self, syscall: &Operation) -> Result<OperationResult> {
+    pub fn get_result(&mut self, operation: &Operation) -> Result<OperationResult> {
         // Make sure we are in the proper state.
         match self.state {
             State::BeforeSyscall => {
@@ -136,26 +136,7 @@ impl Tracee {
 
         // Read the syscall result.
         let retval = self.registers().rax as i64;
-        match syscall {
-            Operation::Open { .. } => {
-                if retval < 0 {
-                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
-                } else {
-                    Ok(OperationResult::FileDescriptor(retval as i32))
-                }
-            }
-            Operation::Rand { .. } => {
-                if retval < 0 {
-                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
-                } else {
-                    Ok(OperationResult::NumBytes(retval as usize))
-                }
-            }
-            Operation::Exit => Err(Error::new(
-                ErrorKind::Other,
-                "result not available for exited process",
-            )),
-        }
+        operation.result(retval)
     }
 
     // Helper methods to step the tracee to syscal-{enter,exit}-stop.

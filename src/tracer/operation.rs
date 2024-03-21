@@ -68,6 +68,29 @@ impl Operation {
         }
     }
 
+    pub fn result(&self, retval: i64) -> Result<OperationResult> {
+        match self {
+            Operation::Open { .. } => {
+                if retval < 0 {
+                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
+                } else {
+                    Ok(OperationResult::FileDescriptor(retval as i32))
+                }
+            }
+            Operation::Rand { .. } => {
+                if retval < 0 {
+                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
+                } else {
+                    Ok(OperationResult::NumBytes(retval as usize))
+                }
+            }
+            Operation::Exit => Err(Error::new(
+                ErrorKind::Other,
+                "result not available for exited process",
+            )),
+        }
+    }
+
     pub fn intercept(&self, tracee: &mut Tracee, address: u64) -> Result<()> {
         match self {
             Operation::Open { num, .. } => {
