@@ -2,7 +2,11 @@ use super::{Operation, OperationResult};
 use crate::syscall::SysNum;
 use nix::{
     errno::Errno,
-    libc::{c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE, PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_EVENT_VFORK_DONE, PTRACE_EVENT_EXEC},
+    libc::{
+        c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE,
+        PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK,
+        PTRACE_EVENT_VFORK_DONE,
+    },
     sys::{
         ptrace,
         wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -11,7 +15,7 @@ use nix::{
 };
 use std::io::{Error, ErrorKind, Result};
 use std::os::unix::process::CommandExt;
-use tracing::{debug, warn, info};
+use tracing::{debug, info, warn};
 
 #[derive(Copy, Clone, Debug)]
 enum State {
@@ -35,7 +39,7 @@ struct Memory {
 }
 
 impl Tracee {
-    pub fn spawn<I, S>(cmd: &str, args: I) -> Result<()>
+    pub fn spawn<I, S>(cmd: &str, args: I) -> Result<Pid>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
@@ -55,7 +59,7 @@ impl Tracee {
         let pid = Pid::from_raw(child.id() as i32);
         ptrace::setoptions(pid, ptrace::Options::all())?;
         ptrace::syscall(pid, None)?;
-        Ok(())
+        Ok(pid)
     }
 
     fn new(pid: Pid, registers: user_regs_struct) -> Self {
@@ -367,13 +371,15 @@ impl Tracee {
         Ok(result)
     }
 
-    pub fn wait() -> Result<Option<(Tracee, Operation)>> {
+    pub fn wait(parent: Pid) -> Result<Option<(Tracee, Operation)>> {
         loop {
             match waitpid(None, Some(WaitPidFlag::__WALL)) {
                 Ok(WaitStatus::Exited(pid, code)) => {
-                    // TODO: remove this assertion and remember all children
                     warn!(?pid, ?code, "tracee exited");
-                    return Ok(None);
+                    if pid == parent {
+                        return Ok(None);
+                    }
+                    continue;
                 }
                 Ok(WaitStatus::PtraceSyscall(pid)) => {
                     // A tracee is ready.
@@ -382,7 +388,7 @@ impl Tracee {
                     if let State::AfterSyscall = tracee.state {
                         // We get the result of a syscall we didn't bother checking
                         debug!(?pid, "received ignored result for syscall");
-                        continue
+                        continue;
                     }
                     let operation = Operation::parse(&mut tracee)?;
                     if let Some(operation) = operation {
@@ -402,12 +408,12 @@ impl Tracee {
                 Ok(WaitStatus::PtraceEvent(pid, _, event)) => {
                     // TODO: more interesting logging
                     match event {
-                        PTRACE_EVENT_CLONE | PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK => info!(?pid, "process is forking"),
+                        PTRACE_EVENT_CLONE | PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK => {
+                            info!(?pid, "process is forking")
+                        }
                         PTRACE_EVENT_VFORK_DONE => info!(?pid, "vfork done"),
                         PTRACE_EVENT_EXEC => info!(?pid, "execing"),
-                        _ => 
-                            warn!(event, "unsupported ptrace event"),
-                        
+                        _ => warn!(event, "unsupported ptrace event"),
                     }
                     debug!(?pid, event, "ptrace event");
                     ptrace::syscall(pid, None)?;

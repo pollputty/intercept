@@ -1,5 +1,5 @@
 use intercept::config;
-use intercept::tracer;
+use intercept::tracer::Tracer;
 
 use clap::Parser;
 use tracing::{debug, error, info, span, Level};
@@ -27,9 +27,9 @@ fn main() -> std::io::Result<()> {
     info!(cmd = args.cmd.join(" "), "Will run command");
 
     if let Some(program) = args.cmd.first() {
-        tracer::spawn(program, args.cmd.iter().skip(1)).inspect_err(|e| error!("{}", e))?;
+        let tracer = Tracer::spawn(program, args.cmd.iter().skip(1)).inspect_err(|e| error!("{}", e))?;
         info!("command spawned");
-        tracer::run(&conf).inspect_err(|e| error!("Error: {}", e))?;
+        tracer.run(&conf).inspect_err(|e| error!("Error: {}", e))?;
         info!("command exited")
     }
     Ok(())

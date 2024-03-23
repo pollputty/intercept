@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use intercept::config;
-    use intercept::tracer::{run, spawn};
+    use intercept::tracer::Tracer;
 
     fn test_config() -> config::Config {
         config::Config {
@@ -18,15 +18,15 @@ mod tests {
     #[test]
     fn echo() {
         let conf = test_config();
-        assert!(spawn("echo", ["foo"]).is_ok());
-        assert!(run(&conf).is_ok());
+        let tracer = Tracer::spawn("echo", ["foo"]).unwrap();
+        assert!(tracer.run(&conf).is_ok());
     }
 
     #[test]
     fn cat() {
         let conf = test_config();
-        assert!(spawn("cat", ["/etc/passwd"]).is_ok());
-        assert!(run(&conf).is_ok());
+        let tracer = Tracer::spawn("cat", ["/etc/passwd"]).unwrap();
+        assert!(tracer.run(&conf).is_ok());
     }
 
     #[test]
@@ -36,21 +36,21 @@ mod tests {
             from: "/etc/passwd".to_string(),
             to: "/dev/null".to_string(),
         });
-        assert!(spawn("cat", ["/etc/passwd"]).is_ok());
-        assert!(run(&conf).is_ok());
+        let tracer = Tracer::spawn("cat", ["/etc/passwd"]).unwrap();
+        assert!(tracer.run(&conf).is_ok());
     }
 
     #[test]
     fn subcommand() {
         let conf = test_config();
-        assert!(spawn("bash", ["-c", "echo a"]).is_ok());
-        assert!(run(&conf).is_ok());
+        let tracer = Tracer::spawn("bash", ["-c", "echo a"]).unwrap();
+        assert!(tracer.run(&conf).is_ok());
     }
 
     #[test]
     fn python3() {
         let conf = test_config();
-        assert!(spawn("python3", ["-c", "print('hello')"]).is_ok());
-        assert!(run(&conf).is_ok());
+        let tracer = Tracer::spawn("python3", ["-c", "print('hello')"]).unwrap();
+        assert!(tracer.run(&conf).is_ok());
     }
 }
