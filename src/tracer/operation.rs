@@ -69,7 +69,7 @@ impl Operation {
                 Ok(None)
             }
             // The process will exit
-            SysNum::ExitGroup => Ok(Some(Operation::Exit)),
+            SysNum::ExitGroup | SysNum::Exit => Ok(Some(Operation::Exit)),
             // The rest is identified, and there is nothing to do
             num => {
                 debug!(syscall = ?num, "received ignored syscall");
