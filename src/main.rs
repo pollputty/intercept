@@ -1,3 +1,5 @@
+use std::process::exit;
+
 use intercept::config;
 use intercept::tracer::Tracer;
 
@@ -13,10 +15,15 @@ struct Args {
     cmd: Vec<String>,
 }
 
-fn main() -> std::io::Result<()> {
+fn main() {
     let args = Args::parse();
-    let conf = config::load(&args.config_file)?;
-
+    let conf = match config::load(&args.config_file) {
+        Ok(conf) => conf,
+        Err(e) => {
+            println!("Error in configuration: {}", e);
+            exit(1);
+        }
+    };
     // Init logging
     let level: Level = (&conf.log.level).into();
     tracing_subscriber::fmt().with_max_level(level).init();
@@ -27,10 +34,18 @@ fn main() -> std::io::Result<()> {
     info!(cmd = args.cmd.join(" "), "Will run command");
 
     if let Some(program) = args.cmd.first() {
-        let tracer = Tracer::spawn(program, args.cmd.iter().skip(1)).inspect_err(|e| error!("{}", e))?;
+        let tracer = match Tracer::spawn(program, args.cmd.iter().skip(1)) {
+            Ok(tracer) => tracer,
+            Err(e) => {
+                error!("couldn't spawn command: {}", e);
+                exit(1)
+            }
+        };
         info!("command spawned");
-        tracer.run(&conf).inspect_err(|e| error!("Error: {}", e))?;
+        if let Err(e) = tracer.run(&conf) {
+            error!("error during command execution: {}", e);
+            exit(1)
+        }
         info!("command exited")
     }
-    Ok(())
 }
