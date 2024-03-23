@@ -4,8 +4,8 @@ use nix::{
     errno::Errno,
     libc::{
         c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE,
-        PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK,
-        PTRACE_EVENT_VFORK_DONE,
+        PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_EVENT_FORK,
+        PTRACE_EVENT_VFORK, PTRACE_EVENT_VFORK_DONE,
     },
     sys::{
         ptrace,
@@ -375,7 +375,7 @@ impl Tracee {
         loop {
             match waitpid(None, Some(WaitPidFlag::__WALL)) {
                 Ok(WaitStatus::Exited(pid, code)) => {
-                    warn!(?pid, ?code, "tracee exited");
+                    info!(?pid, ?code, "child exited");
                     if pid == parent {
                         return Ok(None);
                     }
@@ -394,9 +394,9 @@ impl Tracee {
                     if let Some(operation) = operation {
                         // Some operations could block the tracee until the new process does something.
                         // For now these operations never reach the client.
-                        if let Operation::Fork { .. } | Operation::Wait = operation {
-                            // So that drop doesn't block.
-                            tracee.state = State::AfterSyscall;
+                        if let Operation::Fork { .. } | Operation::Wait | Operation::Exit =
+                            operation
+                        {
                             continue;
                         }
                         return Ok(Some((tracee, operation)));
@@ -413,6 +413,7 @@ impl Tracee {
                         }
                         PTRACE_EVENT_VFORK_DONE => info!(?pid, "vfork done"),
                         PTRACE_EVENT_EXEC => info!(?pid, "execing"),
+                        PTRACE_EVENT_EXIT => info!(?pid, "exiting"),
                         _ => warn!(event, "unsupported ptrace event"),
                     }
                     debug!(?pid, event, "ptrace event");

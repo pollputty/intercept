@@ -24,8 +24,7 @@ impl Tracer {
     }
 
     pub fn run(&self, cfg: &Config) -> Result<()> {
-        debug!("command spawned");
-
+        debug!("run");
         let files_redirect: HashMap<String, String> = cfg
             .redirect
             .files
@@ -36,7 +35,7 @@ impl Tracer {
         loop {
             match Tracee::wait(self.pid) {
                 Ok(None) => {
-                    debug!("tracee exited");
+                    debug!("command exited");
                     return Ok(());
                 }
                 Ok(Some((ref mut tracee, operation))) => match operation {
@@ -91,11 +90,8 @@ impl Tracer {
                             e => error!(result = ?e, "unexpected result for rand operation"),
                         }
                     }
-                    op @ (Operation::Fork { .. } | Operation::Wait) => {
+                    op @ (Operation::Fork { .. } | Operation::Wait | Operation::Exit) => {
                         panic!("this operation type should not be returned here: {:?}", op);
-                    }
-                    Operation::Exit => {
-                        return Ok(());
                     }
                 },
                 Err(e) => panic!("unexpected error: {:?}", e),
