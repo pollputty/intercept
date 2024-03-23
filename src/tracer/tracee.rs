@@ -2,7 +2,7 @@ use super::{Operation, OperationResult};
 use crate::syscall::SysNum;
 use nix::{
     errno::Errno,
-    libc::{c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE},
+    libc::{c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE, PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_EVENT_VFORK_DONE, PTRACE_EVENT_EXEC},
     sys::{
         ptrace,
         wait::{waitpid, WaitPidFlag, WaitStatus},
@@ -11,7 +11,7 @@ use nix::{
 };
 use std::io::{Error, ErrorKind, Result};
 use std::os::unix::process::CommandExt;
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 
 #[derive(Copy, Clone, Debug)]
 enum State {
@@ -379,7 +379,11 @@ impl Tracee {
                     // A tracee is ready.
                     let registers = ptrace::getregs(pid)?;
                     let mut tracee = Tracee::new(pid, registers);
-                    // TODO: remove this assertion
+                    if let State::AfterSyscall = tracee.state {
+                        // We get the result of a syscall we didn't bother checking
+                        debug!(?pid, "received ignored result for syscall");
+                        continue
+                    }
                     let operation = Operation::parse(&mut tracee)?;
                     if let Some(operation) = operation {
                         // Some operations could block the tracee until the new process does something.
@@ -397,13 +401,21 @@ impl Tracee {
                 }
                 Ok(WaitStatus::PtraceEvent(pid, _, event)) => {
                     // TODO: more interesting logging
+                    match event {
+                        PTRACE_EVENT_CLONE | PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK => info!(?pid, "process is forking"),
+                        PTRACE_EVENT_VFORK_DONE => info!(?pid, "vfork done"),
+                        PTRACE_EVENT_EXEC => info!(?pid, "execing"),
+                        _ => 
+                            warn!(event, "unsupported ptrace event"),
+                        
+                    }
                     debug!(?pid, event, "ptrace event");
                     ptrace::syscall(pid, None)?;
                     continue;
                 }
-                Ok(WaitStatus::Stopped(pid, sig)) => {
+                Ok(WaitStatus::Stopped(pid, _)) => {
                     // TODO: more interesting logging
-                    debug!(?pid, ?sig, "stop event");
+                    info!(?pid, "process was stopped");
                     ptrace::syscall(pid, None)?;
                     continue;
                 }
@@ -417,17 +429,13 @@ impl Tracee {
 
 impl Drop for Tracee {
     fn drop(&mut self) {
-        // resume the tracee
-        if let State::BeforeSyscall = self.state {
-            self.step_over_syscall().unwrap();
-        }
-        if let State::AfterSyscall = self.state {
-            if let Some(allocations) = self.allocations.take() {
-                for mem in allocations {
-                    self.free_memory(&mem).unwrap();
-                }
+        // free reserved memory
+        if let Some(allocations) = self.allocations.take() {
+            for mem in allocations {
+                self.free_memory(&mem).unwrap();
             }
-            ptrace::syscall(self.pid, None).unwrap();
         }
+        // resume the tracee
+        ptrace::syscall(self.pid, None).unwrap();
     }
 }

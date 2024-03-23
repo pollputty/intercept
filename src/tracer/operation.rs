@@ -4,7 +4,7 @@ use std::{
 };
 
 use nix::errno::Errno;
-use tracing::info;
+use tracing::{debug, warn};
 
 use super::tracee::Tracee;
 use crate::syscall::SysNum;
@@ -56,18 +56,25 @@ impl Operation {
                 Ok(Some(Operation::Rand { len, addr }))
             }
             num @ (SysNum::Clone | SysNum::Fork | SysNum::VFork) => {
+                debug!("fork-like operation");
                 Ok(Some(Operation::Fork { num }))
             }
-            SysNum::Wait => Ok(Some(Operation::Wait)),
+            SysNum::Wait => {
+                debug!("process waits for child");
+                Ok(Some(Operation::Wait))
+            }
             // TODO: handle more syscalls
             SysNum::Other(num) => {
-                info!(syscall = num, "received an unsupported syscall");
+                warn!(syscall = num, "received an unsupported syscall");
                 Ok(None)
             }
             // The process will exit
             SysNum::ExitGroup => Ok(Some(Operation::Exit)),
             // The rest is identified, and there is nothing to do
-            _ => Ok(None),
+            num => {
+                debug!(syscall = ?num, "received ignored syscall");
+                Ok(None)
+            }
         }
     }
 
