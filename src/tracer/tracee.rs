@@ -11,7 +11,7 @@ use nix::{
         ptrace,
         wait::{waitpid, WaitPidFlag, WaitStatus},
     },
-    unistd::Pid,
+    unistd::{setsid, Pid},
 };
 use std::io::{Error, ErrorKind, Result};
 use std::os::unix::process::CommandExt;
@@ -49,6 +49,9 @@ impl Tracee {
         cmd.args(args);
         unsafe {
             cmd.pre_exec(|| {
+                // Create a session so we can wait on the command's children only
+                // necessary to be able to run multiple Tracer instance.
+                setsid()?;
                 ptrace::traceme()?;
                 Ok(())
             });
@@ -372,8 +375,9 @@ impl Tracee {
     }
 
     pub fn wait(parent: Pid) -> Result<Option<(Tracee, Operation)>> {
+        let group = Pid::from_raw(-parent.as_raw());
         loop {
-            match waitpid(None, Some(WaitPidFlag::__WALL)) {
+            match waitpid(group, Some(WaitPidFlag::__WALL)) {
                 Ok(WaitStatus::Exited(pid, code)) => {
                     info!(?pid, ?code, "child exited");
                     if pid == parent {
