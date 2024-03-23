@@ -6,12 +6,15 @@ use std::{
 use nix::errno::Errno;
 use tracing::info;
 
-use super::tracee::{State, Tracee};
+use super::tracee::Tracee;
 use crate::syscall::SysNum;
 
+#[derive(Debug)]
 pub enum Operation {
     Open { num: SysNum, path: PathBuf },
     Rand { len: usize, addr: u64 },
+    Fork { num: SysNum },
+    Wait,
     Exit,
 }
 
@@ -19,17 +22,13 @@ pub enum Operation {
 pub enum OperationResult {
     FileDescriptor(i32),
     NumBytes(usize),
+    Pid(i32),
     Error(Errno),
 }
 
 impl Operation {
     pub fn parse(tracee: &mut Tracee) -> Result<Option<Operation>> {
-        // Make sure we are in the proper state.
-        match tracee.state() {
-            State::BeforeSyscall => {}
-            _ => return Err(Error::new(ErrorKind::Other, "invalid state")),
-        }
-
+        let _span = tracing::span!(tracing::Level::INFO, "parse", pid = tracee.pid()).entered();
         // Parse the syscall.
         let registers = tracee.registers();
         match registers.orig_rax.into() {
@@ -56,6 +55,10 @@ impl Operation {
                 let addr = registers.rdi;
                 Ok(Some(Operation::Rand { len, addr }))
             }
+            num @ (SysNum::Clone | SysNum::Fork | SysNum::VFork) => {
+                Ok(Some(Operation::Fork { num }))
+            }
+            SysNum::Wait => Ok(Some(Operation::Wait)),
             // TODO: handle more syscalls
             SysNum::Other(num) => {
                 info!(syscall = num, "received an unsupported syscall");
@@ -69,25 +72,19 @@ impl Operation {
     }
 
     pub fn result(&self, retval: i64) -> Result<OperationResult> {
-        match self {
-            Operation::Open { .. } => {
-                if retval < 0 {
-                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
-                } else {
-                    Ok(OperationResult::FileDescriptor(retval as i32))
-                }
+        if retval < 0 {
+            Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
+        } else {
+            match self {
+                Operation::Open { .. } => Ok(OperationResult::FileDescriptor(retval as i32)),
+                Operation::Rand { .. } => Ok(OperationResult::NumBytes(retval as usize)),
+                Operation::Fork { .. } => Ok(OperationResult::Pid(retval as i32)),
+                Operation::Wait => Ok(OperationResult::Pid(retval as i32)),
+                Operation::Exit => Err(Error::new(
+                    ErrorKind::Other,
+                    "result not available for exited process",
+                )),
             }
-            Operation::Rand { .. } => {
-                if retval < 0 {
-                    Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
-                } else {
-                    Ok(OperationResult::NumBytes(retval as usize))
-                }
-            }
-            Operation::Exit => Err(Error::new(
-                ErrorKind::Other,
-                "result not available for exited process",
-            )),
         }
     }
 
@@ -117,7 +114,7 @@ impl Operation {
                 tracee.set_result(*len as u64)?;
                 Ok(())
             }
-            Operation::Exit => Err(Error::new(
+            Operation::Exit | Operation::Fork { .. } | Operation::Wait => Err(Error::new(
                 ErrorKind::Other,
                 "cannot intercept an exit syscall",
             )),

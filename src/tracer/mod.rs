@@ -71,7 +71,7 @@ pub fn run(cfg: &Config) -> Result<()> {
                         info!("redirecting getrandom({})", len);
                         operation.intercept(tracee, 0)?;
                     }
-                    
+
                     let result = tracee.get_result(&operation)?;
                     match result {
                         OperationResult::NumBytes(num_bytes) => {
@@ -82,7 +82,9 @@ pub fn run(cfg: &Config) -> Result<()> {
                         }
                         e => error!(result = ?e, "unexpected result for rand operation"),
                     }
-                
+                }
+                op @ (Operation::Fork { .. } | Operation::Wait) => {
+                    panic!("this operation type should not be returned here: {:?}", op);
                 }
                 Operation::Exit => {
                     return Ok(());

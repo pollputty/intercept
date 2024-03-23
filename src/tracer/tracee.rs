@@ -5,7 +5,7 @@ use nix::{
     libc::{c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE},
     sys::{
         ptrace,
-        wait::{wait as syswait, waitpid, WaitStatus},
+        wait::{waitpid, WaitPidFlag, WaitStatus},
     },
     unistd::Pid,
 };
@@ -14,7 +14,7 @@ use std::os::unix::process::CommandExt;
 use tracing::{debug, warn};
 
 #[derive(Copy, Clone, Debug)]
-pub enum State {
+enum State {
     BeforeSyscall,
     AfterSyscall,
     Exited,
@@ -53,8 +53,7 @@ impl Tracee {
 
         // Configure the child process to stop on system calls and resume it.
         let pid = Pid::from_raw(child.id() as i32);
-        let opts = ptrace::Options::PTRACE_O_TRACESYSGOOD | ptrace::Options::PTRACE_O_EXITKILL;
-        ptrace::setoptions(pid, opts)?;
+        ptrace::setoptions(pid, ptrace::Options::all())?;
         ptrace::syscall(pid, None)?;
         Ok(())
     }
@@ -63,13 +62,17 @@ impl Tracee {
         Self {
             pid,
             registers,
-            state: State::BeforeSyscall,
+            state: if Errno::from_raw(-(registers.rax as i32)) == Errno::ENOSYS {
+                State::BeforeSyscall
+            } else {
+                State::AfterSyscall
+            },
             allocations: None,
         }
     }
 
-    pub fn state(&self) -> State {
-        self.state
+    pub fn pid(&self) -> i32 {
+        self.pid.as_raw()
     }
 
     pub fn registers(&self) -> user_regs_struct {
@@ -141,27 +144,34 @@ impl Tracee {
 
     // Helper methods to step the tracee to syscal-{enter,exit}-stop.
     fn step_syscall_and_wait(&mut self) -> Result<()> {
-        ptrace::syscall(self.pid, None)?;
-        match waitpid(self.pid, None)? {
-            WaitStatus::PtraceSyscall(_) => {
-                self.update_registers()?;
-                if Errno::from_raw(-(self.registers().rax as i32)) == Errno::ENOSYS {
-                    self.state = State::BeforeSyscall;
-                } else {
-                    self.state = State::AfterSyscall;
+        loop {
+            ptrace::syscall(self.pid, None)?;
+            match waitpid(self.pid, None)? {
+                WaitStatus::PtraceSyscall(_) => {
+                    self.update_registers()?;
+                    if Errno::from_raw(-(self.registers().rax as i32)) == Errno::ENOSYS {
+                        self.state = State::BeforeSyscall;
+                    } else {
+                        self.state = State::AfterSyscall;
+                    }
+                    return Ok(());
+                }
+                WaitStatus::Exited(_, _) => {
+                    self.state = State::Exited;
+                    return Ok(());
+                }
+                WaitStatus::PtraceEvent(pid, _, _) => {
+                    debug!(?pid, "ptrace event received while waiting for syscall");
+                    continue;
+                }
+                e => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("unexpected wait status: {:?}", e),
+                    ))
                 }
             }
-            WaitStatus::Exited(_, _) => {
-                self.state = State::Exited;
-            }
-            _ => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "expected to be at syscall-stop",
-                ))
-            }
         }
-        Ok(())
     }
 
     fn step_over_syscall(&mut self) -> Result<()> {
@@ -359,10 +369,10 @@ impl Tracee {
 
     pub fn wait() -> Result<Option<(Tracee, Operation)>> {
         loop {
-            match syswait() {
-                Ok(WaitStatus::Exited(_, code)) => {
-                    // TODO: remove this assertion
-                    assert_eq!(code, 0);
+            match waitpid(None, Some(WaitPidFlag::__WALL)) {
+                Ok(WaitStatus::Exited(pid, code)) => {
+                    // TODO: remove this assertion and remember all children
+                    warn!(?pid, ?code, "tracee exited");
                     return Ok(None);
                 }
                 Ok(WaitStatus::PtraceSyscall(pid)) => {
@@ -370,16 +380,34 @@ impl Tracee {
                     let registers = ptrace::getregs(pid)?;
                     let mut tracee = Tracee::new(pid, registers);
                     // TODO: remove this assertion
-                    assert_eq!(Errno::ENOSYS, Errno::from_raw(-(registers.rax as i32)));
                     let operation = Operation::parse(&mut tracee)?;
-                    if let Some(syscall) = operation {
-                        return Ok(Some((tracee, syscall)));
+                    if let Some(operation) = operation {
+                        // Some operations could block the tracee until the new process does something.
+                        // For now these operations never reach the client.
+                        if let Operation::Fork { .. } | Operation::Wait = operation {
+                            // So that drop doesn't block.
+                            tracee.state = State::AfterSyscall;
+                            continue;
+                        }
+                        return Ok(Some((tracee, operation)));
                     } else {
                         // Syscall not supported, keep going.
                         continue;
                     }
                 }
-                // TODO: support forking, etc...
+                Ok(WaitStatus::PtraceEvent(pid, _, event)) => {
+                    // TODO: more interesting logging
+                    debug!(?pid, event, "ptrace event");
+                    ptrace::syscall(pid, None)?;
+                    continue;
+                }
+                Ok(WaitStatus::Stopped(pid, sig)) => {
+                    // TODO: more interesting logging
+                    debug!(?pid, ?sig, "stop event");
+                    ptrace::syscall(pid, None)?;
+                    continue;
+                }
+
                 Ok(s) => panic!("unexpected stop reason: {:?}", s),
                 Err(e) => panic!("unexpected waitpid error: {:?}", e),
             }
