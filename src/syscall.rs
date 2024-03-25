@@ -70,8 +70,6 @@ pub enum SysNum {
     Other(u64),
 }
 
-pub type SyscallResult = Result<u64, nix::errno::Errno>;
-
 impl From<u64> for SysNum {
     fn from(num: u64) -> Self {
         match num {

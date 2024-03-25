@@ -128,7 +128,7 @@ impl Tracee {
         Ok(())
     }
 
-    pub fn get_result(&mut self, operation: &Operation) -> Result<OperationResult> {
+    pub fn get_result(&mut self) -> Result<OperationResult> {
         // Make sure we are in the proper state.
         match self.state {
             State::BeforeSyscall => {
@@ -146,7 +146,7 @@ impl Tracee {
 
         // Read the syscall result.
         let retval = self.registers().rax as i64;
-        operation.result(retval)
+        Ok(Operation::result(retval))
     }
 
     // Helper methods to step the tracee to syscal-{enter,exit}-stop.

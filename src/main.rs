@@ -1,7 +1,6 @@
 use std::process::exit;
 
-use intercept::config;
-use intercept::tracer::Tracer;
+use intercept::{Config, Tracer};
 
 use clap::Parser;
 use tracing::{debug, error, info, span, Level};
@@ -17,7 +16,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    let conf = match config::load(&args.config_file) {
+    let conf = match Config::load(&args.config_file) {
         Ok(conf) => conf,
         Err(e) => {
             println!("Error in configuration: {}", e);
@@ -27,10 +26,10 @@ fn main() {
     // Init logging
     let level: Level = (&conf.log.level).into();
     tracing_subscriber::fmt().with_max_level(level).init();
+    let _span = span!(Level::DEBUG, "main").entered();
 
     debug!("Configuration: {:#?}", conf);
 
-    let _span = span!(Level::DEBUG, "main").entered();
     info!(cmd = args.cmd.join(" "), "Will run command");
 
     if let Some(program) = args.cmd.first() {

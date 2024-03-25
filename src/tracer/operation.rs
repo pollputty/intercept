@@ -1,7 +1,4 @@
-use std::{
-    io::{Error, ErrorKind, Result},
-    path::PathBuf,
-};
+use std::{io::Result, path::PathBuf};
 
 use nix::errno::Errno;
 use tracing::{debug, warn};
@@ -20,9 +17,7 @@ pub enum Operation {
 
 #[derive(Debug)]
 pub enum OperationResult {
-    FileDescriptor(i32),
-    NumBytes(usize),
-    Pid(i32),
+    Success(i32),
     Error(Errno),
 }
 
@@ -78,53 +73,11 @@ impl Operation {
         }
     }
 
-    pub fn result(&self, retval: i64) -> Result<OperationResult> {
+    pub fn result(retval: i64) -> OperationResult {
         if retval < 0 {
-            Ok(OperationResult::Error(Errno::from_raw(-retval as i32)))
+            OperationResult::Error(Errno::from_raw(-retval as i32))
         } else {
-            match self {
-                Operation::Open { .. } => Ok(OperationResult::FileDescriptor(retval as i32)),
-                Operation::Rand { .. } => Ok(OperationResult::NumBytes(retval as usize)),
-                Operation::Fork { .. } => Ok(OperationResult::Pid(retval as i32)),
-                Operation::Wait => Ok(OperationResult::Pid(retval as i32)),
-                Operation::Exit => Err(Error::new(
-                    ErrorKind::Other,
-                    "result not available for exited process",
-                )),
-            }
-        }
-    }
-
-    pub fn intercept(&self, tracee: &mut Tracee, address: u64) -> Result<()> {
-        match self {
-            Operation::Open { num, .. } => {
-                let arg = match num {
-                    SysNum::Open => 1,
-                    SysNum::OpenAt => 2,
-                    _ => {
-                        return Err(Error::new(
-                            ErrorKind::Other,
-                            "invalid sysnum in Open operation",
-                        ))
-                    }
-                };
-
-                tracee.set_arg(arg, address)?;
-                Ok(())
-            }
-            Operation::Rand { len, addr } => {
-                // TODO: skip the syscall instead
-                tracee.get_result(self)?;
-                // Overwrite result with 0s.
-                let data = vec![0u8; *len];
-                tracee.write_bytes(*addr, &data)?;
-                tracee.set_result(*len as u64)?;
-                Ok(())
-            }
-            Operation::Exit | Operation::Fork { .. } | Operation::Wait => Err(Error::new(
-                ErrorKind::Other,
-                "cannot intercept an exit syscall",
-            )),
+            OperationResult::Success(retval as i32)
         }
     }
 }

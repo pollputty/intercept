@@ -1,3 +1,10 @@
 pub mod config;
-pub mod syscall;
-pub mod tracer;
+mod modules;
+mod recorder;
+mod syscall;
+mod tracer;
+
+pub use config::Config;
+pub use recorder::{Record, Recorder};
+pub use syscall::SysNum;
+pub use tracer::Tracer;

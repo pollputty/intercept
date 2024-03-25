@@ -36,11 +36,13 @@ pub struct Redirect {
     pub to: String,
 }
 
-pub fn load(filepath: &str) -> Result<Config> {
-    let content = std::fs::read_to_string(filepath)?;
-    let config = serde_yaml::from_str(content.as_str())
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    Ok(config)
+impl Config {
+    pub fn load(filepath: &str) -> Result<Config> {
+        let content = std::fs::read_to_string(filepath)?;
+        let config = serde_yaml::from_str(content.as_str())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(config)
+    }
 }
 
 impl From<&LogLevel> for tracing::Level {

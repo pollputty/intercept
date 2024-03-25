@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use intercept::config;
-    use intercept::tracer::Tracer;
+    use intercept::{config, Tracer};
 
     fn test_config() -> config::Config {
         config::Config {
