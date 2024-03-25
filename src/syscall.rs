@@ -20,6 +20,7 @@ pub enum SysNum {
     Futex,
     FStat,
     FStatFS,
+    GetCWD,   // TODO?
     GetDEnts, // TODO?
     GetEGID,
     GetEUID,
@@ -107,6 +108,7 @@ impl From<u64> for SysNum {
             62 => SysNum::Kill,
             63 => SysNum::Uname,
             72 => SysNum::Fcntl,
+            79 => SysNum::GetCWD,
             80 => SysNum::Chdir,
             85 => SysNum::Creat,
             89 => SysNum::ReadLink,
@@ -181,6 +183,7 @@ impl From<SysNum> for u64 {
             SysNum::Kill => 62,
             SysNum::Uname => 63,
             SysNum::Fcntl => 72,
+            SysNum::GetCWD => 79,
             SysNum::Chdir => 80,
             SysNum::Creat => 85,
             SysNum::ReadLink => 89,
