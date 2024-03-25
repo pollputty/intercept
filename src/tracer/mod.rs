@@ -30,12 +30,22 @@ impl Tracer {
 
     pub fn run(&self, cfg: &Config) -> Result<()> {
         debug!("run");
-        let files_redirect: HashMap<String, String> = cfg
+        let mut files_redirect: HashMap<String, String> = cfg
             .redirect
             .files
             .iter()
             .map(|redirect| (redirect.from.clone(), redirect.to.clone()))
             .collect();
+
+        // Add default redirection for /dev/(u)random if randomness is redirected.
+        if cfg.redirect.random {
+            for key in ["/dev/urandom", "/dev/random"] {
+                if !files_redirect.contains_key(key) {
+                    debug!("redirecting {} to /dev/zero", key);
+                    files_redirect.insert(key.to_string(), "/dev/zero".to_string());
+                }
+            }
+        }
 
         let mut recorder = Recorder::new("record.json")?;
         let mut random_mgr = RandomManager::new(cfg.redirect.random);
