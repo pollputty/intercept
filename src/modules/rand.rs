@@ -3,7 +3,7 @@ use std::io::Result;
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use tracing::info;
 
-use crate::tracer::{OperationResult, Tracee};
+use crate::{recorder::RandomRecord, tracer::{OperationResult, Tracee}};
 
 const SEED: u64 = 0xdeadbeef;
 
@@ -26,7 +26,7 @@ impl RandomManager {
         buf
     }
 
-    pub fn process(&mut self, tracee: &mut Tracee, len: usize, addr: u64) -> Result<()> {
+    pub fn process(&mut self, tracee: &mut Tracee, len: usize, addr: u64) -> Result<RandomRecord> {
         if self.active {
             // TODO: skip the syscall
             tracee.get_result()?;
@@ -45,6 +45,6 @@ impl RandomManager {
                 info!("getrandom({})", errno);
             }
         }
-        Ok(())
+        Ok(RandomRecord { length: len })
     }
 }

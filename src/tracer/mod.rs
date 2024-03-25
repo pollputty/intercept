@@ -50,10 +50,15 @@ impl Tracer {
                 Ok(Some((ref mut tracee, operation))) => match operation {
                     Operation::Open { ref path, num } => {
                         let record = file_mgr.process(tracee, path, num)?;
-                        recorder.record(record)?;
+                        if cfg.record.files {
+                            recorder.record(record)?;
+                        }
                     }
                     Operation::Rand { len, addr } => {
-                        random_mgr.process(tracee, len, addr)?;
+                        let record = random_mgr.process(tracee, len, addr)?;
+                        if cfg.record.random {
+                            recorder.record(record)?;
+                        }
                     }
                     op @ (Operation::Fork { .. } | Operation::Wait | Operation::Exit) => {
                         panic!("this operation type should not be returned here: {:?}", op);

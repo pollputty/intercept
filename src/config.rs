@@ -4,6 +4,7 @@ use std::io::Result;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub log: LogConfig,
+    pub record: RecordConfig,
     pub redirect: RedirectConfig,
 }
 
@@ -26,6 +27,12 @@ pub enum LogLevel {
 #[derive(Debug, Deserialize)]
 pub struct RedirectConfig {
     pub files: Vec<Redirect>,
+    pub random: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecordConfig {
+    pub files: bool,
     pub random: bool,
 }
 

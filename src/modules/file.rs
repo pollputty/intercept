@@ -7,8 +7,9 @@ use std::{
 use tracing::info;
 
 use crate::{
+    recorder::FileRecord,
     tracer::{OperationResult, Tracee},
-    Record, SysNum,
+    SysNum,
 };
 
 pub struct FileManager {
@@ -20,7 +21,7 @@ impl FileManager {
         FileManager { redirects }
     }
 
-    pub fn process(&self, tracee: &mut Tracee, path: &Path, num: SysNum) -> Result<Record> {
+    pub fn process(&self, tracee: &mut Tracee, path: &Path, num: SysNum) -> Result<FileRecord> {
         // Maybe redirect the open syscall to a different file.
         let absolute = match path.canonicalize() {
             Ok(absolute) => absolute,
@@ -42,14 +43,21 @@ impl FileManager {
         }
 
         let result = tracee.get_result()?;
+        let success = match result {
+            OperationResult::Success(_) => {
+                info!("open({})", path.display());
+                true
+            }
+            OperationResult::Error(errno) => {
+                info!("open({}): {}", path.display(), errno);
+                false
+            }
+        };
 
         // Let the syscall run.
-        let record = Record {
-            operation: path.to_string_lossy().to_string(),
-            result: match result {
-                OperationResult::Success(fd) => fd.to_string(),
-                OperationResult::Error(errno) => errno.to_string(),
-            },
+        let record = FileRecord {
+            path: path.to_string_lossy().to_string(),
+            success,
         };
         Ok(record)
     }

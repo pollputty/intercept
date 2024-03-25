@@ -7,6 +7,10 @@ mod tests {
             log: config::LogConfig {
                 level: config::LogLevel::INFO,
             },
+            record: config::RecordConfig {
+                files: false,
+                random: false,
+            },
             redirect: config::RedirectConfig {
                 files: vec![],
                 random: false,
