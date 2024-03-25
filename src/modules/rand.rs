@@ -3,7 +3,10 @@ use std::io::Result;
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use tracing::info;
 
-use crate::{recorder::RandomRecord, tracer::{OperationResult, Tracee}};
+use crate::{
+    recorder::RandomRecord,
+    tracer::{OperationResult, Tracee},
+};
 
 const SEED: u64 = 0xdeadbeef;
 

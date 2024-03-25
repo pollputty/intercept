@@ -20,7 +20,7 @@ pub struct RandomRecord {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all="lowercase")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum Record {
     File(FileRecord),
     Random(RandomRecord),
