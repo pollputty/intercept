@@ -10,7 +10,7 @@ use nix::{errno::Errno, sys::ptrace, unistd::Pid};
 use operation::Operation;
 pub use operation::OperationResult;
 use std::{collections::HashMap, io::Result};
-pub use tracee::Tracee;
+pub use tracee::{Tracee, SpawnOptions};
 use tracing::debug;
 
 pub struct Tracer {
@@ -18,13 +18,13 @@ pub struct Tracer {
 }
 
 impl Tracer {
-    pub fn spawn<I, S>(cmd: &str, args: I) -> Result<Tracer>
+    pub fn spawn<I, S>(cmd: &str, args: I, options: Option<SpawnOptions>) -> Result<Tracer>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
         Ok(Tracer {
-            pid: Tracee::spawn(cmd, args)?,
+            pid: Tracee::spawn(cmd, args, options)?,
         })
     }
 

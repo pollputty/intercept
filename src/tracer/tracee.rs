@@ -38,8 +38,13 @@ struct Memory {
     len: usize,
 }
 
+pub struct SpawnOptions {
+    pub stdout: Option<std::process::Stdio>,
+    pub stderr: Option<std::process::Stdio>,
+}
+
 impl Tracee {
-    pub fn spawn<I, S>(cmd: &str, args: I) -> Result<Pid>
+    pub fn spawn<I, S>(cmd: &str, args: I, options: Option<SpawnOptions>) -> Result<Pid>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
@@ -47,6 +52,14 @@ impl Tracee {
         // Parse the command line and spawn the child process in a stopped state.
         let mut cmd = std::process::Command::new(cmd);
         cmd.args(args);
+        if let Some(options) = options {
+            if let Some(stdout) = options.stdout {
+                cmd.stdout(stdout);
+            }
+            if let Some(stderr) = options.stderr {
+                cmd.stderr(stderr);
+            }
+        }
         unsafe {
             cmd.pre_exec(|| {
                 // Create a session so we can wait on the command's children only
