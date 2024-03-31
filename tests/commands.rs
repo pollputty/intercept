@@ -10,10 +10,12 @@ mod tests {
             record: config::RecordConfig {
                 files: false,
                 random: false,
+                time: false,
             },
             redirect: config::RedirectConfig {
                 files: vec![],
                 random: false,
+                time: false,
             },
         }
     }

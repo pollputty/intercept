@@ -50,9 +50,10 @@ impl Tracer {
         let mut recorder = Recorder::new("record.json")?;
         let mut random_mgr = RandomManager::new(cfg.redirect.random);
         let file_mgr = FileManager::new(files_redirect);
+        let disable_vdso = cfg.record.time || cfg.redirect.time;
 
         loop {
-            match Tracee::wait(self.pid) {
+            match Tracee::wait(self.pid, disable_vdso) {
                 Ok(None) => {
                     debug!("command exited");
                     return Ok(());

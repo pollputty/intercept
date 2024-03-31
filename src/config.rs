@@ -28,12 +28,14 @@ pub enum LogLevel {
 pub struct RedirectConfig {
     pub files: Vec<Redirect>,
     pub random: bool,
+    pub time: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RecordConfig {
     pub files: bool,
     pub random: bool,
+    pub time: bool,
 }
 
 #[derive(Debug, Deserialize)]

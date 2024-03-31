@@ -3,15 +3,15 @@ use crate::syscall::SysNum;
 use nix::{
     errno::Errno,
     libc::{
-        c_void, user_regs_struct, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE,
-        PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_EVENT_FORK,
-        PTRACE_EVENT_VFORK, PTRACE_EVENT_VFORK_DONE,
+        c_void, user_regs_struct, AT_IGNORE, AT_NULL, AT_SYSINFO_EHDR, MAP_ANONYMOUS, MAP_PRIVATE,
+        PROT_READ, PROT_WRITE, PTRACE_EVENT_CLONE, PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT,
+        PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_EVENT_VFORK_DONE,
     },
     sys::{
         ptrace,
         wait::{waitpid, WaitPidFlag, WaitStatus},
     },
-    unistd::{setsid, Pid},
+    unistd::{getpid, setsid, Pid},
 };
 use std::io::{Error, ErrorKind, Result};
 use std::os::unix::process::CommandExt;
@@ -56,12 +56,9 @@ impl Tracee {
                 Ok(())
             });
         }
+        info!(pid = getpid().as_raw(), "spawning child process");
         let child = cmd.spawn()?;
-
-        // Configure the child process to stop on system calls and resume it.
         let pid = Pid::from_raw(child.id() as i32);
-        ptrace::setoptions(pid, ptrace::Options::all())?;
-        ptrace::syscall(pid, None)?;
         Ok(pid)
     }
 
@@ -374,7 +371,7 @@ impl Tracee {
         Ok(result)
     }
 
-    pub fn wait(parent: Pid) -> Result<Option<(Tracee, Operation)>> {
+    pub fn wait(parent: Pid, disable_vdso: bool) -> Result<Option<(Tracee, Operation)>> {
         let group = Pid::from_raw(-parent.as_raw());
         loop {
             match waitpid(group, Some(WaitPidFlag::__WALL)) {
@@ -410,7 +407,6 @@ impl Tracee {
                     }
                 }
                 Ok(WaitStatus::PtraceEvent(pid, _, event)) => {
-                    // TODO: more interesting logging
                     match event {
                         PTRACE_EVENT_CLONE | PTRACE_EVENT_FORK | PTRACE_EVENT_VFORK => {
                             info!(?pid, "process is forking")
@@ -425,9 +421,15 @@ impl Tracee {
                     continue;
                 }
                 Ok(WaitStatus::Stopped(pid, _)) => {
-                    // TODO: more interesting logging
                     info!(?pid, "process was stopped");
-                    ptrace::syscall(pid, None)?;
+                    // Configure the child process and resume it.
+                    ptrace::setoptions(pid, ptrace::Options::all())?;
+                    if disable_vdso {
+                        let tracee = Tracee::new(pid, ptrace::getregs(pid)?);
+                        tracee.disable_vdso()?;
+                    } else {
+                        ptrace::syscall(pid, None)?;
+                    }
                     continue;
                 }
 
@@ -435,6 +437,36 @@ impl Tracee {
                 Err(e) => panic!("unexpected waitpid error: {:?}", e),
             }
         }
+    }
+
+    fn disable_vdso(&self) -> Result<()> {
+        // inspired by https://github.com/danteu/novdso/
+        info!("disabling vDSO");
+        let mut addr = self.registers().rsp;
+        let mut count = 2;
+        while count > 0 {
+            if ptrace::read(self.pid, addr as *mut c_void)? == AT_NULL as i64 {
+                count -= 1;
+            }
+            addr += 8;
+        }
+        loop {
+            match ptrace::read(self.pid, addr as *mut c_void)? as u64 {
+                AT_NULL => break,
+                AT_SYSINFO_EHDR => {
+                    debug!("found vDSO");
+                    // disable vDSO
+                    unsafe {
+                        ptrace::write(self.pid, addr as *mut c_void, AT_IGNORE as *mut c_void)?;
+                    }
+                    break;
+                }
+                _ => {
+                    addr += 16;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
