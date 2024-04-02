@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::io::Result;
+use std::{io::Result, path::PathBuf};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -31,11 +31,12 @@ pub struct RedirectConfig {
     pub time: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RecordConfig {
     pub files: bool,
     pub random: bool,
     pub time: bool,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]

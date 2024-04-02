@@ -10,6 +10,7 @@ mod tests {
                 level: config::LogLevel::INFO,
             },
             record: config::RecordConfig {
+                path: "/dev/null".into(),
                 files: false,
                 random: false,
                 time: false,

@@ -1,9 +1,18 @@
+use nix::libc::{
+    CLOCK_BOOTTIME, CLOCK_BOOTTIME_ALARM, CLOCK_MONOTONIC, CLOCK_MONOTONIC_COARSE,
+    CLOCK_MONOTONIC_RAW, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_REALTIME_ALARM,
+    CLOCK_REALTIME_COARSE, CLOCK_TAI, CLOCK_THREAD_CPUTIME_ID,
+};
+use serde::Serialize;
+use tracing::warn;
+
 #[derive(Copy, Clone, Debug)]
 pub enum SysNum {
     Access,
     ArchPRCTL,
     Brk,
     Chdir, // TODO?
+    ClockGetTime,
     Clone,
     Close,
     Connect, // TODO?
@@ -131,6 +140,7 @@ impl From<u64> for SysNum {
             217 => SysNum::GetDEnts,
             218 => SysNum::SetTIDAddress,
             221 => SysNum::FAdvise,
+            228 => SysNum::ClockGetTime,
             231 => SysNum::ExitGroup,
             257 => SysNum::OpenAt,
             262 => SysNum::NewFstatAt,
@@ -206,6 +216,7 @@ impl From<SysNum> for u64 {
             SysNum::GetDEnts => 217,
             SysNum::SetTIDAddress => 218,
             SysNum::FAdvise => 221,
+            SysNum::ClockGetTime => 228,
             SysNum::ExitGroup => 231,
             SysNum::OpenAt => 257,
             SysNum::NewFstatAt => 262,
@@ -217,6 +228,39 @@ impl From<SysNum> for u64 {
             SysNum::Rseq => 334,
             SysNum::FAccessAt2 => 439,
             SysNum::Other(num) => num,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub enum Clock {
+    Realtime(i32),
+    Monotonic(i32),
+    ProcessCPUTime,
+    ThreadCPUTime,
+    Other(i32),
+}
+
+impl From<u64> for Clock {
+    fn from(num: u64) -> Self {
+        let num = num as i32;
+        match num {
+            CLOCK_REALTIME | CLOCK_REALTIME_COARSE | CLOCK_REALTIME_ALARM => Clock::Realtime(num),
+            CLOCK_MONOTONIC
+            | CLOCK_MONOTONIC_COARSE
+            | CLOCK_MONOTONIC_RAW
+            | CLOCK_BOOTTIME
+            | CLOCK_BOOTTIME_ALARM => Clock::Monotonic(num),
+            CLOCK_PROCESS_CPUTIME_ID => Clock::ProcessCPUTime,
+            CLOCK_THREAD_CPUTIME_ID => Clock::ThreadCPUTime,
+            CLOCK_TAI => {
+                warn!("Unknown clock type: {}", num);
+                Clock::Other(num)
+            }
+            _ => {
+                warn!("Unknown clock type: {}", num);
+                Clock::Other(num)
+            }
         }
     }
 }

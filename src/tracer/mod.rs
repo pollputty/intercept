@@ -2,15 +2,13 @@ mod operation;
 mod tracee;
 
 use crate::{
-    config::Config,
-    modules::{FileManager, RandomManager},
-    Recorder,
+    config::Config, modules::{FileManager, RandomManager, TimeManager}, Record, Recorder
 };
 use nix::{errno::Errno, sys::ptrace, unistd::Pid};
 use operation::Operation;
 pub use operation::OperationResult;
 use std::{collections::HashMap, io::Result};
-pub use tracee::{Tracee, SpawnOptions};
+pub use tracee::{SpawnOptions, Tracee};
 use tracing::debug;
 
 pub struct Tracer {
@@ -47,8 +45,9 @@ impl Tracer {
             }
         }
 
-        let mut recorder = Recorder::new("record.json")?;
+        let mut recorder = Recorder::new(&cfg.record)?;
         let mut random_mgr = RandomManager::new(cfg.redirect.random);
+        let time_mgr = TimeManager::new(cfg.redirect.time);
         let file_mgr = FileManager::new(files_redirect);
         let disable_vdso = cfg.record.time || cfg.redirect.time;
 
@@ -58,23 +57,23 @@ impl Tracer {
                     debug!("command exited");
                     return Ok(());
                 }
-                Ok(Some((ref mut tracee, operation))) => match operation {
-                    Operation::Open { ref path, num } => {
-                        let record = file_mgr.process(tracee, path, num)?;
-                        if cfg.record.files {
-                            recorder.record(record)?;
+                Ok(Some((ref mut tracee, operation))) => {
+                    let record: Record = match operation {
+                        Operation::Open { ref path, num } => {
+                            file_mgr.process(tracee, path, num)?.into()
                         }
-                    }
-                    Operation::Rand { len, addr } => {
-                        let record = random_mgr.process(tracee, len, addr)?;
-                        if cfg.record.random {
-                            recorder.record(record)?;
+                        Operation::Rand { len, addr } => {
+                            random_mgr.process(tracee, len, addr)?.into()
                         }
-                    }
-                    op @ (Operation::Fork { .. } | Operation::Wait | Operation::Exit) => {
-                        panic!("this operation type should not be returned here: {:?}", op);
-                    }
-                },
+                        Operation::Time { num, clock, addr } => {
+                            time_mgr.process(tracee, num, clock, addr)?.into()
+                        }
+                        op @ (Operation::Fork { .. } | Operation::Wait | Operation::Exit) => {
+                            unreachable!("this operation type should not be returned here: {:?}", op)
+                        }
+                    };
+                    recorder.record(record)?;
+                }
                 Err(e) => panic!("unexpected error: {:?}", e),
             }
         }

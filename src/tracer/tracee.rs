@@ -352,6 +352,20 @@ impl Tracee {
         Ok(addr)
     }
 
+    pub fn read_memory(&self, addr: u64, len: usize) -> Result<Vec<u8>> {
+        // Optim for reading small amount of data
+        if len <= 8 {
+            let data = ptrace::read(self.pid, addr as *mut c_void)?.to_ne_bytes();
+            return Ok(data[..len].to_vec());
+        }
+        use std::os::unix::fs::FileExt;
+        let path = format!("/proc/{}/mem", self.pid.as_raw() as u32);
+        let mem = std::fs::File::open(path)?;
+        let mut data = vec![0u8; len];
+        mem.read_exact_at(&mut data, addr)?;
+        Ok(data)
+    }
+
     // TODO: what if not UTF-8?
     pub fn read_string(&self, addr: u64) -> std::io::Result<String> {
         debug!(addr, "reading string from tracee's memory");

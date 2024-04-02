@@ -4,13 +4,26 @@ use nix::errno::Errno;
 use tracing::{debug, warn};
 
 use super::tracee::Tracee;
-use crate::syscall::SysNum;
+use crate::syscall::{SysNum, Clock};
 
 #[derive(Debug)]
 pub enum Operation {
-    Open { num: SysNum, path: PathBuf },
-    Rand { len: usize, addr: u64 },
-    Fork { num: SysNum },
+    Fork {
+        num: SysNum,
+    },
+    Open {
+        num: SysNum,
+        path: PathBuf,
+    },
+    Rand {
+        len: usize,
+        addr: u64,
+    },
+    Time {
+        num: SysNum,
+        clock: Clock,
+        addr: u64,
+    },
     Wait,
     Exit,
 }
@@ -27,6 +40,7 @@ impl Operation {
         // Parse the syscall.
         let registers = tracee.registers();
         match registers.orig_rax.into() {
+            // Open
             SysNum::Open => {
                 let path = tracee.read_string(registers.rdi)?;
                 let path = PathBuf::from(path);
@@ -45,26 +59,38 @@ impl Operation {
                     num: SysNum::OpenAt,
                 }))
             }
+            // Rand
             SysNum::GetRandom => {
                 let len = registers.rsi as usize;
                 let addr = registers.rdi;
                 Ok(Some(Operation::Rand { len, addr }))
             }
+            // Time
+            SysNum::ClockGetTime => {
+                let num = SysNum::ClockGetTime;
+                Ok(Some(Operation::Time {
+                    num,
+                    addr: registers.rsi,
+                    clock: registers.rdi.into(),
+                }))
+            }
+            // Fork
             num @ (SysNum::Clone | SysNum::Fork | SysNum::VFork) => {
                 debug!("fork-like operation");
                 Ok(Some(Operation::Fork { num }))
             }
+            // Wait
             SysNum::Wait => {
                 debug!("process waits for child");
                 Ok(Some(Operation::Wait))
             }
-            // TODO: handle more syscalls
+            // Exit
+            SysNum::ExitGroup | SysNum::Exit => Ok(Some(Operation::Exit)),
+            // Unknown syscall
             SysNum::Other(num) => {
                 warn!(syscall = num, "received an unsupported syscall");
                 Ok(None)
             }
-            // The process will exit
-            SysNum::ExitGroup | SysNum::Exit => Ok(Some(Operation::Exit)),
             // The rest is identified, and there is nothing to do
             num => {
                 debug!(syscall = ?num, "received ignored syscall");
