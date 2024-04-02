@@ -49,7 +49,7 @@ impl Tracer {
         let mut random_mgr = RandomManager::new(cfg.redirect.random);
         let time_mgr = TimeManager::new(cfg.redirect.time);
         let file_mgr = FileManager::new(files_redirect);
-        let disable_vdso = cfg.record.time || cfg.redirect.time;
+        let disable_vdso = cfg.record.time || cfg.redirect.time.is_some();
 
         loop {
             match Tracee::wait(self.pid, disable_vdso) {

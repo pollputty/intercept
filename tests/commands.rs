@@ -18,7 +18,7 @@ mod tests {
             redirect: config::RedirectConfig {
                 files: vec![],
                 random: false,
-                time: false,
+                time: None,
             },
         }
     }
