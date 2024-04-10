@@ -3,7 +3,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     recorder::TimeRecord,
@@ -36,8 +36,7 @@ impl TimeManager {
         addr: u64,
     ) -> Result<TimeRecord> {
         let true_time = match tracee.get_result()? {
-            OperationResult::Success(code) => {
-                assert_eq!(code, 0);
+            OperationResult::Success(_) => {
                 let result = self.get_result(tracee, num, addr)?;
                 info!("time({:?}, {:?})", clock, result);
                 Some(result)
@@ -54,17 +53,32 @@ impl TimeManager {
                 Clock::Realtime(_) => time,
                 _ => true_time,
             };
-            let secs = new_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            let nanos = new_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .subsec_nanos();
-            let mut bytes = Vec::from(secs.to_ne_bytes());
-            bytes.append(&mut Vec::from(nanos.to_ne_bytes()));
-            tracee.write_bytes(addr, &bytes)?;
+            match num {
+                SysNum::ClockGetTime => {
+                    let secs = new_time
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let nanos = new_time
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .subsec_nanos();
+                    let mut bytes = Vec::from(secs.to_ne_bytes());
+                    bytes.append(&mut Vec::from(nanos.to_ne_bytes()));
+                    tracee.write_bytes(addr, &bytes)?;
+                }
+                SysNum::Time => {
+                    if addr != 0 {
+                        warn!("time syscall with non-null addr, which is not supported.");
+                    }
+                    let secs = new_time
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    tracee.set_result(secs)?;
+                }
+                _ => unreachable!("unexpected time syscall {:?}", num),
+            };
         }
 
         Ok(TimeRecord {
@@ -81,6 +95,11 @@ impl TimeManager {
                 let nanos = u32::from_ne_bytes(data[8..12].try_into().unwrap());
                 let time = SystemTime::UNIX_EPOCH
                     + Duration::from_nanos(secs * 1_000_000_000 + nanos as u64);
+                Ok(time)
+            }
+            SysNum::Time => {
+                let secs = tracee.registers().rax;
+                let time = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
                 Ok(time)
             }
             _ => unreachable!("unexpected time syscall {:?}", num),

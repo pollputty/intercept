@@ -74,6 +74,14 @@ impl Operation {
                     clock: registers.rdi.into(),
                 }))
             }
+            SysNum::Time => {
+                let num = SysNum::Time;
+                Ok(Some(Operation::Time {
+                    num,
+                    addr: registers.rdi,
+                    clock: Clock::Realtime(0),
+                }))
+            }
             // Fork
             num @ (SysNum::Clone | SysNum::Fork | SysNum::VFork) => {
                 debug!("fork-like operation");

@@ -72,6 +72,7 @@ pub enum SysNum {
     StatFS,
     StatX,
     SysInfo, // TODO?
+    Time,
     Uname,   // TODO?
     VFork,
     Wait,
@@ -136,6 +137,7 @@ impl From<u64> for SysNum {
             158 => SysNum::ArchPRCTL,
             191 => SysNum::GetXAttr,
             192 => SysNum::LGetXAttr,
+            201 => SysNum::Time,
             202 => SysNum::Futex,
             217 => SysNum::GetDEnts,
             218 => SysNum::SetTIDAddress,
@@ -212,6 +214,7 @@ impl From<SysNum> for u64 {
             SysNum::ArchPRCTL => 158,
             SysNum::GetXAttr => 191,
             SysNum::LGetXAttr => 192,
+            SysNum::Time => 201,
             SysNum::Futex => 202,
             SysNum::GetDEnts => 217,
             SysNum::SetTIDAddress => 218,
