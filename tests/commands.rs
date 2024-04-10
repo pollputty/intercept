@@ -14,11 +14,13 @@ mod tests {
                 files: false,
                 random: false,
                 time: false,
+                pid: false,
             },
             redirect: config::RedirectConfig {
                 files: vec![],
                 random: false,
                 time: None,
+                pid: None,
             },
         }
     }

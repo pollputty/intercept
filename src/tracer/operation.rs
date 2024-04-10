@@ -4,7 +4,7 @@ use nix::errno::Errno;
 use tracing::{debug, warn};
 
 use super::tracee::Tracee;
-use crate::syscall::{SysNum, Clock};
+use crate::syscall::{Clock, SysNum};
 
 #[derive(Debug)]
 pub enum Operation {
@@ -23,6 +23,9 @@ pub enum Operation {
         num: SysNum,
         clock: Clock,
         addr: u64,
+    },
+    Pid {
+        num: SysNum,
     },
     Wait,
     Exit,
@@ -82,6 +85,12 @@ impl Operation {
                     clock: Clock::Realtime(0),
                 }))
             }
+            num @ (SysNum::GetPID
+            | SysNum::GetPPID
+            | SysNum::GetGID
+            | SysNum::GetEGID
+            | SysNum::GetUID
+            | SysNum::GetEUID) => Ok(Some(Operation::Pid { num })),
             // Fork
             num @ (SysNum::Clone | SysNum::Fork | SysNum::VFork) => {
                 debug!("fork-like operation");

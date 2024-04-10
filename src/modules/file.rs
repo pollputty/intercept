@@ -37,8 +37,6 @@ impl FileManager {
             info!("redirecting open() from {} to {}", absolute, dest);
 
             // Inject the new path into the tracee's memory.
-            // TODO: free the memory
-
             self.redirect(tracee, dest, num)?;
         }
 

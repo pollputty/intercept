@@ -2,7 +2,9 @@ mod operation;
 mod tracee;
 
 use crate::{
-    config::Config, modules::{FileManager, RandomManager, TimeManager}, Record, Recorder
+    config::Config,
+    modules::{FileManager, PIDManager, RandomManager, TimeManager},
+    Record, Recorder,
 };
 use nix::{errno::Errno, sys::ptrace, unistd::Pid};
 use operation::Operation;
@@ -49,6 +51,7 @@ impl Tracer {
         let mut random_mgr = RandomManager::new(cfg.redirect.random);
         let time_mgr = TimeManager::new(cfg.redirect.time);
         let file_mgr = FileManager::new(files_redirect);
+        let pid_mgr = PIDManager::new(cfg.redirect.pid);
         let disable_vdso = cfg.record.time || cfg.redirect.time.is_some();
 
         loop {
@@ -68,8 +71,12 @@ impl Tracer {
                         Operation::Time { num, clock, addr } => {
                             time_mgr.process(tracee, num, clock, addr)?.into()
                         }
+                        Operation::Pid { num } => pid_mgr.process(tracee, num)?.into(),
                         op @ (Operation::Fork { .. } | Operation::Wait | Operation::Exit) => {
-                            unreachable!("this operation type should not be returned here: {:?}", op)
+                            unreachable!(
+                                "this operation type should not be returned here: {:?}",
+                                op
+                            )
                         }
                     };
                     recorder.record(record)?;

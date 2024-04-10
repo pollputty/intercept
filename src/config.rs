@@ -29,6 +29,7 @@ pub struct RedirectConfig {
     pub files: Vec<Redirect>,
     pub random: bool,
     pub time: Option<u64>,
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,6 +37,7 @@ pub struct RecordConfig {
     pub files: bool,
     pub random: bool,
     pub time: bool,
+    pub pid: bool,
     pub path: PathBuf,
 }
 

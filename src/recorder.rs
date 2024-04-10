@@ -29,11 +29,17 @@ pub struct TimeRecord {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PIDRecord {
+    pub pid: u32,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Record {
     File(FileRecord),
     Random(RandomRecord),
     Time(TimeRecord),
+    PID(PIDRecord),
 }
 
 impl Recorder {
@@ -67,6 +73,11 @@ impl Recorder {
                     return Ok(());
                 }
             }
+            Record::PID(_) => {
+                if !self.config.pid {
+                    return Ok(());
+                }
+            }
         };
         serde_json::to_writer(&mut self.output, &record)?;
         self.output.write_all(b"\n")?;
@@ -95,5 +106,11 @@ impl From<RandomRecord> for Record {
 impl From<TimeRecord> for Record {
     fn from(record: TimeRecord) -> Self {
         Record::Time(record)
+    }
+}
+
+impl From<PIDRecord> for Record {
+    fn from(record: PIDRecord) -> Self {
+        Record::PID(record)
     }
 }
