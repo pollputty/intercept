@@ -62,8 +62,8 @@ impl Tracer {
                 }
                 Ok(Some((ref mut tracee, operation))) => {
                     let record: Record = match operation {
-                        Operation::Open { ref path, num } => {
-                            file_mgr.process(tracee, path, num)?.into()
+                        Operation::Open { ref path, num, read, write } => {
+                            file_mgr.process(tracee, path, num, read, write)?.into()
                         }
                         Operation::Rand { len, addr } => {
                             random_mgr.process(tracee, len, addr)?.into()

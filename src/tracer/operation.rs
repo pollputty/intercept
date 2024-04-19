@@ -14,6 +14,8 @@ pub enum Operation {
     Open {
         num: SysNum,
         path: PathBuf,
+        read: bool,
+        write: bool,
     },
     Rand {
         len: usize,
@@ -47,9 +49,12 @@ impl Operation {
             SysNum::Open => {
                 let path = tracee.read_string(registers.rdi)?;
                 let path = PathBuf::from(path);
+                let rw_flags = registers.rsi & 0b11;
                 Ok(Some(Operation::Open {
                     path,
                     num: SysNum::Open,
+                    read: rw_flags != 1,
+                    write: rw_flags != 0,
                 }))
             }
             SysNum::OpenAt => {
@@ -57,9 +62,12 @@ impl Operation {
                 assert_eq!(registers.rdi as i32, -100);
                 let path = tracee.read_string(registers.rsi)?;
                 let path = PathBuf::from(path);
+                let rw_flags = registers.rdx & 0b11;
                 Ok(Some(Operation::Open {
                     path,
                     num: SysNum::OpenAt,
+                    read: rw_flags != 1,
+                    write: rw_flags != 0,
                 }))
             }
             // Rand

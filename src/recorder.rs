@@ -15,6 +15,8 @@ pub struct Recorder {
 pub struct FileRecord {
     pub path: String,
     pub success: bool,
+    pub read: bool,
+    pub write: bool,
 }
 
 #[derive(Debug, Serialize)]

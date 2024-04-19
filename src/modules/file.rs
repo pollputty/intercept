@@ -21,7 +21,14 @@ impl FileManager {
         FileManager { redirects }
     }
 
-    pub fn process(&self, tracee: &mut Tracee, path: &Path, num: SysNum) -> Result<FileRecord> {
+    pub fn process(
+        &self,
+        tracee: &mut Tracee,
+        path: &Path,
+        num: SysNum,
+        read: bool,
+        write: bool,
+    ) -> Result<FileRecord> {
         // Maybe redirect the open syscall to a different file.
         let absolute = match path.canonicalize() {
             Ok(absolute) => absolute,
@@ -56,6 +63,8 @@ impl FileManager {
         let record = FileRecord {
             path: path.to_string_lossy().to_string(),
             success,
+            read,
+            write,
         };
         Ok(record)
     }

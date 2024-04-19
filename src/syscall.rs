@@ -73,7 +73,8 @@ pub enum SysNum {
     StatX,
     SysInfo, // TODO?
     Time,
-    Uname,   // TODO?
+    Uname, // TODO?
+    UTimeNsAt,
     VFork,
     Wait,
     Write,
@@ -147,6 +148,7 @@ impl From<u64> for SysNum {
             257 => SysNum::OpenAt,
             262 => SysNum::NewFstatAt,
             273 => SysNum::SetRobustList,
+            280 => SysNum::UTimeNsAt,
             293 => SysNum::Pipe2,
             302 => SysNum::PRLimit,
             318 => SysNum::GetRandom,
@@ -224,6 +226,7 @@ impl From<SysNum> for u64 {
             SysNum::OpenAt => 257,
             SysNum::NewFstatAt => 262,
             SysNum::SetRobustList => 273,
+            SysNum::UTimeNsAt => 280,
             SysNum::Pipe2 => 293,
             SysNum::PRLimit => 302,
             SysNum::GetRandom => 318,
