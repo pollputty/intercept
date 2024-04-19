@@ -56,6 +56,7 @@ sys_num!(
     PRead => 17,
     PWrite => 18,
     Access => 21,
+    SchedYield => 24,
     MAdvise => 28,
     Dup => 32,
     Dup2 => 33,
@@ -92,6 +93,7 @@ sys_num!(
     StatFS => 137,
     FStatFS => 138,
     ArchPRCTL => 158,
+    SetRLimit => 160,
     GetTID => 186,
     GetXAttr => 191,
     LGetXAttr => 192,
@@ -104,6 +106,7 @@ sys_num!(
     FAdvise => 221,
     ClockGetTime => 228,
     ExitGroup => 231,
+    TGKill => 234,  // TODO?
     OpenAt => 257,
     NewFstatAt => 262,
     SetRobustList => 273,

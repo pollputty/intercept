@@ -89,6 +89,14 @@ impl Tracee {
         self.registers
     }
 
+    fn resume(&self) {
+        match ptrace::syscall(self.pid, None) {
+            Ok(_) => (),
+            Err(Errno::ESRCH) => debug!(pid = self.pid.as_raw(), "tracee already exited"),
+            Err(op) => panic!("failed to resume tracee {:?}: {:?}", self.pid.as_raw(), op),
+        }
+    }
+
     fn update_registers(&mut self) -> Result<()> {
         self.registers = ptrace::getregs(self.pid)?;
         Ok(())
@@ -155,7 +163,7 @@ impl Tracee {
     // Helper methods to step the tracee to syscal-{enter,exit}-stop.
     fn step_syscall_and_wait(&mut self) -> Result<()> {
         loop {
-            ptrace::syscall(self.pid, None)?;
+            self.resume();
             match waitpid(self.pid, None)? {
                 WaitStatus::PtraceSyscall(_) => {
                     self.update_registers()?;
@@ -422,7 +430,7 @@ impl Tracee {
                         if let Operation::Fork { .. } | Operation::Wait | Operation::Exit =
                             operation
                         {
-                            debug!(?operation, "ignoring operation");
+                            debug!(?operation, "ignoring");
                             continue;
                         }
                         return Ok(Some((tracee, operation)));
@@ -446,7 +454,7 @@ impl Tracee {
                     continue;
                 }
                 Ok(WaitStatus::Stopped(pid, _)) => {
-                    info!(?pid, "process was stopped");
+                    info!(?pid, "process starts");
                     // Configure the child process and resume it.
                     ptrace::setoptions(pid, ptrace::Options::all())?;
                     if disable_vdso {
@@ -504,10 +512,6 @@ impl Drop for Tracee {
             }
         }
         // resume the tracee
-        match ptrace::syscall(self.pid, None) {
-            Ok(_) => (),
-            Err(Errno::ESRCH) => warn!(pid = self.pid.as_raw(), "tracee already exited"),
-            Err(op) => panic!("failed to resume tracee {:?}: {:?}", self.pid.as_raw(), op),
-        }
+        self.resume();
     }
 }
