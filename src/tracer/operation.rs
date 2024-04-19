@@ -41,7 +41,6 @@ pub enum OperationResult {
 
 impl Operation {
     pub fn parse(tracee: &mut Tracee) -> Result<Option<Operation>> {
-        let _span = tracing::span!(tracing::Level::INFO, "parse", pid = tracee.pid()).entered();
         // Parse the syscall.
         let registers = tracee.registers();
         match registers.orig_rax.into() {
@@ -113,12 +112,12 @@ impl Operation {
             SysNum::ExitGroup | SysNum::Exit => Ok(Some(Operation::Exit)),
             // Unknown syscall
             SysNum::Other(num) => {
-                warn!(syscall = num, "received an unsupported syscall");
+                warn!(syscall = num, "unsupported");
                 Ok(None)
             }
             // The rest is identified, and there is nothing to do
             num => {
-                debug!(syscall = ?num, "received ignored syscall");
+                debug!(syscall = ?num, "ignored");
                 Ok(None)
             }
         }

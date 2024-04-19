@@ -167,6 +167,7 @@ impl Tracee {
                     return Ok(());
                 }
                 WaitStatus::Exited(_, _) => {
+                    debug!(pid=?self.pid, "process exited while waiting for syscall");
                     self.state = State::Exited;
                     return Ok(());
                 }
@@ -406,9 +407,12 @@ impl Tracee {
                     // A tracee is ready.
                     let registers = ptrace::getregs(pid)?;
                     let mut tracee = Tracee::new(pid, registers);
+                    let _span = tracing::span!(tracing::Level::INFO, "tracee", pid = tracee.pid())
+                        .entered();
                     if let State::AfterSyscall = tracee.state {
                         // We get the result of a syscall we didn't bother checking
-                        debug!(?pid, "received ignored result for syscall");
+                        let syscall = SysNum::from(tracee.registers().orig_rax);
+                        debug!(?syscall, "ignored result");
                         continue;
                     }
                     let operation = Operation::parse(&mut tracee)?;
@@ -418,6 +422,7 @@ impl Tracee {
                         if let Operation::Fork { .. } | Operation::Wait | Operation::Exit =
                             operation
                         {
+                            debug!(?operation, "ignoring operation");
                             continue;
                         }
                         return Ok(Some((tracee, operation)));
@@ -499,6 +504,10 @@ impl Drop for Tracee {
             }
         }
         // resume the tracee
-        ptrace::syscall(self.pid, None).unwrap();
+        match ptrace::syscall(self.pid, None) {
+            Ok(_) => (),
+            Err(Errno::ESRCH) => warn!(pid = self.pid.as_raw(), "tracee already exited"),
+            Err(op) => panic!("failed to resume tracee {:?}: {:?}", self.pid.as_raw(), op),
+        }
     }
 }
