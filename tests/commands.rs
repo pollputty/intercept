@@ -21,6 +21,8 @@ mod tests {
                 random: false,
                 time: None,
                 pid: None,
+                stdout: None,
+                stderr: None,
             },
         }
     }
@@ -33,7 +35,7 @@ mod tests {
             stdout: Some(clone.into()),
             stderr: None,
         };
-        let tracer = Tracer::spawn(command, args, Some(opts))?;
+        let tracer = Tracer::spawn(command, args, opts)?;
         tracer.run(conf)?;
         let mut output = String::new();
         tmp.seek(SeekFrom::Start(0))?;

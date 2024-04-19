@@ -1,5 +1,5 @@
-use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Result, Write};
+use std::fs::OpenOptions;
+use std::io::{BufWriter, Result, stdout, Write};
 
 use serde::Serialize;
 
@@ -7,7 +7,7 @@ use crate::config::RecordConfig;
 use crate::syscall::Clock;
 
 pub struct Recorder {
-    output: BufWriter<File>,
+    output: BufWriter<Box<dyn Write>>,
     config: RecordConfig,
 }
 
@@ -44,11 +44,14 @@ pub enum Record {
 
 impl Recorder {
     pub fn new(cfg: &RecordConfig) -> Result<Self> {
-        let file = OpenOptions::new()
+        let file: Box<dyn Write> = match cfg.path.to_string_lossy().as_ref() {
+            "-" => Box::new(stdout()),
+            _ => Box::new(OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open(&cfg.path)?;
+            .open(&cfg.path)?)
+        };
         let output = BufWriter::new(file);
         Ok(Recorder {
             config: cfg.clone(),

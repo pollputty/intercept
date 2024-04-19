@@ -2,7 +2,7 @@ mod operation;
 mod tracee;
 
 use crate::{
-    config::Config,
+    config::{Config, SpawnOptions},
     modules::{FileManager, PIDManager, RandomManager, TimeManager},
     Record, Recorder,
 };
@@ -10,7 +10,7 @@ use nix::{errno::Errno, sys::ptrace, unistd::Pid};
 use operation::Operation;
 pub use operation::OperationResult;
 use std::{collections::HashMap, io::Result};
-pub use tracee::{SpawnOptions, Tracee};
+pub use tracee::Tracee;
 use tracing::debug;
 
 pub struct Tracer {
@@ -18,7 +18,7 @@ pub struct Tracer {
 }
 
 impl Tracer {
-    pub fn spawn<I, S>(cmd: &str, args: I, options: Option<SpawnOptions>) -> Result<Tracer>
+    pub fn spawn<I, S>(cmd: &str, args: I, options: SpawnOptions) -> Result<Tracer>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,

@@ -30,6 +30,8 @@ pub struct RedirectConfig {
     pub random: bool,
     pub time: Option<u64>,
     pub pid: Option<u32>,
+    pub stdout: Option<PathBuf>,
+    pub stderr: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,5 +67,50 @@ impl From<&LogLevel> for tracing::Level {
             LogLevel::WARNING => tracing::Level::WARN,
             LogLevel::ERROR => tracing::Level::ERROR,
         }
+    }
+}
+
+pub struct SpawnOptions {
+    pub stdout: Option<std::process::Stdio>,
+    pub stderr: Option<std::process::Stdio>,
+}
+
+impl TryFrom<&Config> for SpawnOptions {
+    type Error = std::io::Error;
+
+    fn try_from(config: &Config) -> Result<Self> {
+        let stdout = config.redirect.stdout.as_ref().map(|path| {
+            Ok(std::process::Stdio::from(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(path)?,
+            ))
+        });
+
+        let stderr = config.redirect.stderr.as_ref().map(|path| {
+            Ok(std::process::Stdio::from(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(path)?,
+            ))
+        });
+
+        // Cast Option<Result<Stdio>> to Option<Stdio>
+        let stdout = match stdout {
+            Some(Ok(stdio)) => Some(stdio),
+            Some(Err(e)) => return Err(e),
+            None => None,
+        };
+        let stderr = match stderr {
+            Some(Ok(stdio)) => Some(stdio),
+            Some(Err(e)) => return Err(e),
+            None => None,
+        };
+
+        Ok(Self { stdout, stderr })
     }
 }

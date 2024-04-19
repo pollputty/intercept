@@ -30,16 +30,13 @@ impl RandomManager {
     }
 
     pub fn process(&mut self, tracee: &mut Tracee, len: usize, addr: u64) -> Result<RandomRecord> {
+        let result = tracee.get_result()?;
         if self.active {
-            // TODO: skip the syscall
-            tracee.get_result()?;
             // Overwrite result with 0s.
             let data = self.getrandom(len);
             tracee.write_bytes(addr, &data)?;
             tracee.set_result(len as u64)?;
         }
-
-        let result = tracee.get_result()?;
         match result {
             OperationResult::Success(num_bytes) => {
                 info!("getrandom({})", num_bytes);

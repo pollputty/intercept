@@ -33,7 +33,14 @@ fn main() {
     info!(cmd = args.cmd.join(" "), "Will run command");
 
     if let Some(program) = args.cmd.first() {
-        let tracer = match Tracer::spawn(program, args.cmd.iter().skip(1), None) {
+        let opts = match (&conf).try_into() {
+            Ok(opts) => opts,
+            Err(e) => {
+                error!("error in configuration: {}", e);
+                exit(1)
+            }
+        };
+        let tracer = match Tracer::spawn(program, args.cmd.iter().skip(1), opts) {
             Ok(tracer) => tracer,
             Err(e) => {
                 error!("couldn't spawn command: {}", e);

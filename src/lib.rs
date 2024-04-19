@@ -4,7 +4,7 @@ mod recorder;
 mod syscall;
 mod tracer;
 
-pub use config::Config;
+pub use config::{Config, SpawnOptions};
 pub use recorder::{Record, Recorder};
 pub use syscall::SysNum;
-pub use tracer::{SpawnOptions, Tracer};
+pub use tracer::Tracer;
