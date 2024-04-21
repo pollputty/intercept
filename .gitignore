@@ -3,4 +3,5 @@
 *.json
 *.jsonl
 *.ndjson
-/binaries/
+/tests/bins
+!/tests/bins/src
